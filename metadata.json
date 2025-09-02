@@ -1,0 +1,5 @@
+{
+  "name": "CYOA Game Master",
+  "description": "An interactive, text-based Choose-Your-Own-Adventure (CYOA) game where a user provides the world, lore, and rules, and an AI game master creates a vivid, immersive, and responsive story.",
+  "requestFramePermissions": []
+}
