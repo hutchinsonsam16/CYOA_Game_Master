@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Chat, GenerateContentResponse, Content } from "@google/genai";
 import { GameMasterMode } from '../types';
 
@@ -12,35 +11,50 @@ const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export const enhanceWorldData = async (worldData: string): Promise<string> => {
-    const gaiaProtocolPrompt = `
-You are a world-building assistant operating under the Gaia Protocols. Your purpose is to take user-provided world lore and expand upon it to create a richer, more detailed, and internally consistent 'World Bible' for a text-based adventure game.
+export const forgeWorldData = async (originalWorldData: string): Promise<string> => {
+    let currentData = originalWorldData;
+
+    const forgePromptTemplate = (inputData: string, iteration: number) => `
+You are a world-building assistant operating under the Gaia Forge Protocol. Your purpose is to take world lore and iteratively refine it to create a richer, more detailed, and internally consistent 'World Bible'.
+
+This is Forging Cycle ${iteration} of 3.
 
 The Gaia Protocols are as follows:
 1.  **Ecological Cohesion:** Ensure environments, flora, and fauna make sense together.
 2.  **Historical Depth:** Add layers of history, ancient ruins, forgotten legends, or significant past events.
 3.  **Cultural Richness:** Flesh out traditions, social structures, beliefs, and relationships between different factions or races.
-4.  **Internal Consistency:** Identify and resolve potential contradictions in the user's lore, or gently flesh out areas that are too vague.
-5.  **Creative Expansion:** Introduce new, interesting locations, characters, or plot hooks that complement the existing world without overriding the user's core vision.
+4.  **Internal Consistency:** Identify and resolve potential contradictions, or gently flesh out areas that are too vague.
+5.  **Creative Expansion:** Introduce new, interesting locations, characters, or plot hooks that complement the existing world without overriding the core vision.
 
-Your task: Take the following user-provided world data, apply the Gaia Protocols to enhance it, and output the expanded version. The output should be a complete, self-contained 'World Bible'. Do not add commentary or introduction. Output ONLY the enhanced world data.
+Your task: Take the following world data, apply the Gaia Protocols to enhance it, and output the expanded version. The output must be a complete, self-contained 'World Bible'. Do not add any commentary, introduction, or conversational text. Output ONLY the enhanced world data.
 
---- USER WORLD DATA START ---
-${worldData}
---- USER WORLD DATA END ---
+--- WORLD DATA INPUT (CYCLE ${iteration}/3) ---
+${inputData}
+--- WORLD DATA INPUT END ---
 `;
+
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: gaiaProtocolPrompt,
-        });
-        const enhancedData = response.text.trim();
-        // Return enhanced data, or original data if enhancement fails/is empty
-        return enhancedData ? enhancedData : worldData;
+        // Forge process done thrice
+        for (let i = 1; i <= 3; i++) {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: forgePromptTemplate(currentData, i),
+            });
+            const forgedData = response.text.trim();
+            if (forgedData) {
+                currentData = forgedData;
+            }
+            // If it fails, we continue with the last successful data
+        }
+
+        // Append the original data entered at the end
+        const finalForgedData = `${currentData}\n\n---\n\n## ORIGINAL LORE ##\n\n${originalWorldData}`;
+        
+        return finalForgedData;
     } catch (error) {
-        console.error("Failed to enhance world data with Gaia Protocols:", error);
-        // On error, just return the original data so the game can still start.
-        return worldData;
+        console.error("Failed to forge world data with Gaia Protocols:", error);
+        // On error, return the original data to not break the flow.
+        return originalWorldData;
     }
 };
 
@@ -262,27 +276,4 @@ export const generateImage = async (prompt: string, artStyle: string, aspectRati
 
   console.error("Image generation failed after multiple retries due to rate limiting.");
   return undefined;
-};
-
-export const generateCharacterDescriptionFromImage = async (base64ImageData: string, mimeType: string): Promise<string> => {
-    try {
-        const imagePart = {
-            inlineData: {
-                data: base64ImageData,
-                mimeType: mimeType,
-            },
-        };
-        const textPart = {
-            text: "Describe the physical appearance of the character in this image in detail. Focus on defining features like hair, eyes, clothing, and any distinctive marks. This description will be used to maintain visual consistency in future generated images."
-        };
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: [imagePart, textPart] },
-        });
-
-        return response.text.trim();
-    } catch (error) {
-        console.error("Error generating character description from image:", error);
-        throw new Error("Failed to generate a description from the uploaded image.");
-    }
 };

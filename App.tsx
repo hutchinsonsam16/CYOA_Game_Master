@@ -3,7 +3,7 @@ import type { Chat, Content } from '@google/genai';
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
 import { GamePhase, StoryEntry, SavedGameState, GameMasterMode, CharacterInput, GalleryImage, CharacterPortrait } from './types';
-import { initializeChat, getAiResponse, generateImage, generateCharacterDescriptionFromImage, enhanceWorldData } from './services/geminiService';
+import { initializeChat, getAiResponse, generateImage } from './services/geminiService';
 import { saveGameState, loadGameState, clearGameState } from './services/storageService';
 import SetupScreen from './components/SetupScreen';
 import GameScreen from './components/GameScreen';
@@ -159,38 +159,25 @@ const App: React.FC = () => {
     setHasSavedGame(false);
 
     try {
-      // Enhance world data using Gaia Protocols
-      const enhancedWorldData = await enhanceWorldData(worldData);
-      setWorldData(enhancedWorldData);
+      // World data enhancement is now a manual step on the setup screen.
+      // We use the worldData as-is.
+      setWorldData(worldData);
 
       setIsCharacterImageLoading(true);
-      let initialCharDescription = '';
-
-      if ('description' in characterInput && characterInput.description) {
-        const fullCharPrompt = createCharacterPortraitPrompt(characterInput.description);
-        initialCharDescription = characterInput.description;
-        setCharacterDescription(initialCharDescription);
-        const charImgUrl = await generateImage(fullCharPrompt, style, '1:1');
-        setCharacterPortraits([{ url: charImgUrl, prompt: initialCharDescription }]);
-      } else if ('imageBase64' in characterInput && characterInput.imageBase64) {
-        // Set the uploaded image directly as the first portrait
-        const dataUrl = `data:${characterInput.mimeType};base64,${characterInput.imageBase64}`;
-        // And generate a description from it for future consistency
-        const generatedDesc = await generateCharacterDescriptionFromImage(characterInput.imageBase64, characterInput.mimeType);
-        initialCharDescription = generatedDesc;
-        setCharacterDescription(generatedDesc);
-        setCharacterPortraits([{ url: dataUrl, prompt: `Uploaded image. Generated description: ${generatedDesc}` }]);
-      }
+      const fullCharPrompt = createCharacterPortraitPrompt(characterInput.description);
+      setCharacterDescription(characterInput.description);
+      const charImgUrl = await generateImage(fullCharPrompt, style, '1:1');
+      setCharacterPortraits([{ url: charImgUrl, prompt: characterInput.description }]);
       setIsCharacterImageLoading(false);
 
       const characterDetails = {
-        description: initialCharDescription,
+        description: characterInput.description,
         characterClass: characterInput.characterClass,
         alignment: characterInput.alignment,
         backstory: characterInput.backstory,
       };
 
-      const chat = initializeChat(enhancedWorldData, style, mode, characterDetails);
+      const chat = initializeChat(worldData, style, mode, characterDetails);
       setChatSession(chat);
 
       const firstPlayerEntry: StoryEntry = { type: 'player', content: initialPrompt };
@@ -694,11 +681,11 @@ Prompt: ${portrait.prompt}
     : [];
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 font-sans flex flex-col items-center p-4">
-        <div className="text-center w-full max-w-7xl mx-auto">
-            <h1 className="text-4xl font-bold text-indigo-400 mb-2 tracking-wider font-serif">CYOA Game Master</h1>
-            <p className="text-gray-400 mb-6">Your personal AI storyteller awaits.</p>
-        </div>
+    <div className="min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8">
+        <header className="text-center w-full max-w-7xl mx-auto mb-6">
+            <h1 className="text-4xl sm:text-5xl font-bold text-indigo-400 font-serif tracking-tight">CYOA Game Master</h1>
+            <p className="text-slate-400 mt-2">Your personal AI storyteller awaits.</p>
+        </header>
         
         {gamePhase === GamePhase.SETUP ? (
             <SetupScreen 
@@ -708,7 +695,7 @@ Prompt: ${portrait.prompt}
               hasSavedGame={hasSavedGame}
             />
         ) : (
-            <main className="w-full max-w-7xl mx-auto flex flex-row gap-6 h-[85vh]">
+            <main className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 h-[85vh]">
                 <StatusSidebar 
                     portrait={latestCharacterPortrait}
                     isImageLoading={isCharacterImageLoading}

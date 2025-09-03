@@ -1,4 +1,3 @@
-
 import type { Content } from '@google/genai';
 
 export enum GamePhase {
@@ -23,14 +22,12 @@ export interface StoryEntry {
   choices?: string[];
 }
 
-export type CharacterInput = (
-  { description: string; imageBase64?: never; mimeType?: never; } |
-  { description?: never; imageBase64: string; mimeType: string; }
-) & {
+export interface CharacterInput {
+  description: string;
   characterClass?: string;
   alignment?: string;
   backstory?: string;
-};
+}
 
 export interface CharacterPortrait {
   url?: string;
