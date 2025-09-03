@@ -10,9 +10,12 @@ interface StoryBlockProps {
   isImageLoading?: boolean;
   onRegenerate: () => void;
   isImageGenerationEnabled: boolean;
+  onRegenerateResponse: () => void;
+  isLastEntry: boolean;
+  canRegenerate: boolean;
 }
 
-const StoryBlock: React.FC<StoryBlockProps> = ({ text, imageUrl, imgPrompt, isImageLoading, onRegenerate, isImageGenerationEnabled }) => {
+const StoryBlock: React.FC<StoryBlockProps> = ({ text, imageUrl, imgPrompt, isImageLoading, onRegenerate, isImageGenerationEnabled, onRegenerateResponse, isLastEntry, canRegenerate }) => {
   // Remove the final "What do you do?" before rendering markdown,
   // as it's a prompt for the input box, not part of the story.
   const storyText = text.replace(/what do you do\?$/i, '').trim();
@@ -98,6 +101,18 @@ const StoryBlock: React.FC<StoryBlockProps> = ({ text, imageUrl, imgPrompt, isIm
             blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-gray-500 pl-4 italic text-gray-400 my-4" {...props} />,
           }}
         />
+        {isLastEntry && (
+            <div className="flex items-center justify-end mt-3 pt-3 border-t border-gray-600/50">
+            <button
+                onClick={onRegenerateResponse}
+                disabled={!canRegenerate}
+                className="bg-purple-600 text-white text-xs font-bold py-1.5 px-3 rounded-md hover:bg-purple-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-200 shadow-md"
+                aria-label="Regenerate response"
+            >
+                ↻ Regenerate Response
+            </button>
+            </div>
+        )}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { GameMasterMode, CharacterInput } from '../types';
 import classNames from 'classnames';
+import { enhanceBackstory } from '../services/geminiService';
 
 interface SetupScreenProps {
   onStart: (worldData: string, characterInput: CharacterInput, initialPrompt: string, artStyle: string, gameMasterMode: GameMasterMode, imageGeneration: boolean) => void;
@@ -39,6 +40,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onContinue, onLoadFr
   const [artStyle, setArtStyle] = useState(artStyles['Photorealistic']);
   const [gameMasterMode, setGameMasterMode] = useState<GameMasterMode>(GameMasterMode.BALANCED);
   const [imageGeneration, setImageGeneration] = useState(true);
+  const [isEnhancingBackstory, setIsEnhancingBackstory] = useState(false);
   const loreFileInputRef = useRef<HTMLInputElement>(null);
   const charImageInputRef = useRef<HTMLInputElement>(null);
   const saveFileInputRef = useRef<HTMLInputElement>(null);
@@ -108,6 +110,19 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onContinue, onLoadFr
       onLoadFromFile(file);
     }
     e.target.value = ''; // Reset file input
+  };
+
+  const handleEnhanceBackstory = async () => {
+    if (!backstory.trim()) return;
+    setIsEnhancingBackstory(true);
+    try {
+        const enhanced = await enhanceBackstory(backstory);
+        setBackstory(enhanced);
+    } catch (error) {
+        console.error("Failed to enhance backstory:", error);
+    } finally {
+        setIsEnhancingBackstory(false);
+    }
   };
 
   return (
@@ -198,8 +213,18 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onContinue, onLoadFr
                     </select>
                  </div>
                  <div>
-                     <label htmlFor="character-backstory" className="block text-sm font-medium text-gray-300 mb-1">Backstory</label>
-                     <textarea id="character-backstory" value={backstory} onChange={(e) => setBackstory(e.target.value)} placeholder="A brief history of your character..." className="w-full h-24 bg-gray-900 border border-gray-600 rounded-md p-3 text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-200 resize-none custom-scrollbar" />
+                    <div className="flex justify-between items-center mb-1">
+                        <label htmlFor="character-backstory" className="block text-sm font-medium text-gray-300">Backstory</label>
+                        <button
+                            type="button"
+                            onClick={handleEnhanceBackstory}
+                            disabled={isEnhancingBackstory || !backstory.trim()}
+                            className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+                        >
+                            {isEnhancingBackstory ? 'Enhancing...' : 'Enhance with AI ✨'}
+                        </button>
+                    </div>
+                     <textarea id="character-backstory" value={backstory} onChange={(e) => setBackstory(e.target.value)} disabled={isEnhancingBackstory} placeholder="A brief history of your character..." className="w-full h-24 bg-gray-900 border border-gray-600 rounded-md p-3 text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-200 resize-none custom-scrollbar disabled:bg-gray-700" />
                  </div>
             </div>
         </div>

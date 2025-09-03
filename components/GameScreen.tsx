@@ -21,12 +21,17 @@ interface GameScreenProps {
   onExportPdf: () => void;
   onExportJson: () => void;
   onDownloadImages: () => void;
+  onUndo: () => void;
+  canUndo: boolean;
+  onRegenerateResponse: () => void;
+  canRegenerate: boolean;
 }
 
 const GameScreen: React.FC<GameScreenProps> = ({ 
     storyLog, gamePhase, error, choices, onPlayerAction, onRestart, 
     onRegenerateImage, onSaveGame, onOpenMemoryModal, isImageGenerationEnabled,
-    onOpenGallery, onExportPdf, onExportJson, onDownloadImages 
+    onOpenGallery, onExportPdf, onExportJson, onDownloadImages, onUndo, canUndo,
+    onRegenerateResponse, canRegenerate
 }) => {
   const [playerInput, setPlayerInput] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
@@ -69,6 +74,8 @@ const GameScreen: React.FC<GameScreenProps> = ({
     setTimeout(() => setSaveStatus('idle'), 2000); // Reset after 2 seconds
   }
 
+  const lastAiEntryIndex = storyLog.map(e => e.type).lastIndexOf('ai');
+
   return (
     <div className="flex-grow h-full flex flex-col bg-gray-800 p-6 rounded-lg shadow-2xl border border-gray-700">
       <div className="flex-grow overflow-y-auto mb-4 pr-4 custom-scrollbar">
@@ -82,6 +89,9 @@ const GameScreen: React.FC<GameScreenProps> = ({
               isImageLoading={entry.isImageLoading}
               onRegenerate={() => onRegenerateImage(index)}
               isImageGenerationEnabled={isImageGenerationEnabled}
+              onRegenerateResponse={onRegenerateResponse}
+              isLastEntry={index === lastAiEntryIndex}
+              canRegenerate={canRegenerate}
             />
           ) : (
             <PlayerActionBlock key={index} text={entry.content} />
@@ -152,6 +162,14 @@ const GameScreen: React.FC<GameScreenProps> = ({
                         </div>
                     )}
                 </div>
+               <button
+                  type="button"
+                  onClick={onUndo}
+                  disabled={!canUndo || gamePhase !== GamePhase.PLAYING}
+                  className="font-bold py-3 px-4 rounded-lg transition-all duration-300 bg-yellow-600 hover:bg-yellow-700 text-white disabled:bg-gray-500 disabled:cursor-not-allowed"
+                >
+                  Undo
+                </button>
                <button
                   type="button"
                   onClick={onOpenMemoryModal}

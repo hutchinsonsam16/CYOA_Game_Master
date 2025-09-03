@@ -1,10 +1,9 @@
-
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import type { Chat, Content } from '@google/genai';
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
 import { GamePhase, StoryEntry, SavedGameState, GameMasterMode, CharacterInput, GalleryImage, CharacterPortrait } from './types';
-import { initializeChat, getAiResponse, generateImage, generateCharacterDescriptionFromImage } from './services/geminiService';
+import { initializeChat, getAiResponse, generateImage, generateCharacterDescriptionFromImage, enhanceWorldData } from './services/geminiService';
 import { saveGameState, loadGameState, clearGameState } from './services/storageService';
 import SetupScreen from './components/SetupScreen';
 import GameScreen from './components/GameScreen';
@@ -20,7 +19,12 @@ interface ProcessedResponse {
   newCharacterDescription?: string;
   newCharacterClass?: string;
   newAlignment?: string;
+  newBackstoryEntry?: string;
 }
+
+const createCharacterPortraitPrompt = (description: string): string => {
+  return `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, and high-quality rendering.`;
+};
 
 const App: React.FC = () => {
   const [gamePhase, setGamePhase] = useState<GamePhase>(GamePhase.SETUP);
@@ -34,6 +38,8 @@ const App: React.FC = () => {
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
   const [isImageGenerationEnabled, setIsImageGenerationEnabled] = useState<boolean>(true);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [previousGameState, setPreviousGameState] = useState<SavedGameState | null>(null);
+  const [actionToRedo, setActionToRedo] = useState<string | null>(null); // For regeneration
 
   // Store all character portraits with their prompts
   const [characterPortraits, setCharacterPortraits] = useState<CharacterPortrait[]>([]);
@@ -52,17 +58,27 @@ const App: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    // Effect to handle re-doing an action after an undo/regenerate
+    if (actionToRedo && chatSession && gamePhase === GamePhase.PLAYING) {
+      handlePlayerAction(actionToRedo);
+      setActionToRedo(null); // Reset after firing
+    }
+  }, [actionToRedo, chatSession, gamePhase]);
+
   const processAiResponse = useCallback(async (responseText: string, style: string): Promise<ProcessedResponse> => {
       const imgPromptRegex = /\[img-prompt\](.*?)\[\/img-prompt\]/s;
       const charImgPromptRegex = /\[char-img-prompt\](.*?)\[\/char-img-prompt\]/s;
       const choiceRegex = /\[choice\](.*?)\[\/choice\]/g;
       const classRegex = /\[update-class\](.*?)\[\/update-class\]/s;
       const alignmentRegex = /\[update-alignment\](.*?)\[\/update-alignment\]/s;
+      const backstoryRegex = /\[update-backstory\](.*?)\[\/update-backstory\]/s;
       
       const imgMatch = responseText.match(imgPromptRegex);
       const charImgMatch = responseText.match(charImgPromptRegex);
       const classMatch = responseText.match(classRegex);
       const alignmentMatch = responseText.match(alignmentRegex);
+      const backstoryMatch = responseText.match(backstoryRegex);
       const choices = [...responseText.matchAll(choiceRegex)].map(match => match[1].trim());
 
       let imageUrl: string | undefined = undefined;
@@ -70,6 +86,7 @@ const App: React.FC = () => {
       let newCharacterDescription: string | undefined = undefined;
       let newCharacterClass: string | undefined = undefined;
       let newAlignment: string | undefined = undefined;
+      let newBackstoryEntry: string | undefined = undefined;
       
       // Remove all special tags from the final content
       const content = responseText
@@ -78,6 +95,7 @@ const App: React.FC = () => {
         .replace(choiceRegex, '')
         .replace(classRegex, '')
         .replace(alignmentRegex, '')
+        .replace(backstoryRegex, '')
         .trim();
 
       if (imgMatch && imgMatch[1]) {
@@ -101,14 +119,18 @@ const App: React.FC = () => {
       if (alignmentMatch && alignmentMatch[1]) {
         newAlignment = alignmentMatch[1].trim();
       }
+      
+      if (backstoryMatch && backstoryMatch[1]) {
+        newBackstoryEntry = backstoryMatch[1].trim();
+      }
 
-      return { content, imageUrl, imgPrompt, choices, newCharacterDescription, newCharacterClass, newAlignment };
+      return { content, imageUrl, imgPrompt, choices, newCharacterDescription, newCharacterClass, newAlignment, newBackstoryEntry };
   }, [isImageGenerationEnabled]);
   
   const handleUpdateCharacterImage = useCallback(async (description: string, style: string) => {
     setIsCharacterImageLoading(true);
     setCharacterDescription(description); // Update our source of truth
-    const fullPrompt = `A portrait of a character. ${description}`;
+    const fullPrompt = createCharacterPortraitPrompt(description);
     try {
         const url = await generateImage(fullPrompt, style, '1:1');
         setCharacterPortraits(prevPortraits => [...prevPortraits, { url, prompt: description }]);
@@ -124,7 +146,6 @@ const App: React.FC = () => {
     setGamePhase(GamePhase.LOADING);
     setError(null);
     setStoryLog([]);
-    setWorldData(worldData);
     setArtStyle(style);
     setGameMasterMode(mode);
     setIsImageGenerationEnabled(imageGenEnabled);
@@ -132,16 +153,21 @@ const App: React.FC = () => {
     setCharacterClass(characterInput.characterClass || '');
     setAlignment(characterInput.alignment || '');
     setBackstory(characterInput.backstory || '');
+    setPreviousGameState(null);
     
     clearGameState();
     setHasSavedGame(false);
 
     try {
+      // Enhance world data using Gaia Protocols
+      const enhancedWorldData = await enhanceWorldData(worldData);
+      setWorldData(enhancedWorldData);
+
       setIsCharacterImageLoading(true);
       let initialCharDescription = '';
 
       if ('description' in characterInput && characterInput.description) {
-        const fullCharPrompt = `A portrait of a character. ${characterInput.description}`;
+        const fullCharPrompt = createCharacterPortraitPrompt(characterInput.description);
         initialCharDescription = characterInput.description;
         setCharacterDescription(initialCharDescription);
         const charImgUrl = await generateImage(fullCharPrompt, style, '1:1');
@@ -164,14 +190,14 @@ const App: React.FC = () => {
         backstory: characterInput.backstory,
       };
 
-      const chat = initializeChat(worldData, style, mode, characterDetails);
+      const chat = initializeChat(enhancedWorldData, style, mode, characterDetails);
       setChatSession(chat);
 
       const firstPlayerEntry: StoryEntry = { type: 'player', content: initialPrompt };
       setStoryLog([firstPlayerEntry]);
 
       const aiResponseText = await getAiResponse(chat, initialPrompt);
-      const { content, imageUrl, imgPrompt, choices, newCharacterDescription, newCharacterClass, newAlignment } = await processAiResponse(aiResponseText, style);
+      const { content, imageUrl, imgPrompt, choices, newCharacterDescription, newCharacterClass, newAlignment, newBackstoryEntry } = await processAiResponse(aiResponseText, style);
 
       if (newCharacterDescription) {
         // This is unlikely on the first turn, but handle it just in case
@@ -182,6 +208,9 @@ const App: React.FC = () => {
       }
       if (newAlignment) {
         setAlignment(newAlignment);
+      }
+      if (newBackstoryEntry) {
+          setBackstory(prev => `${prev}\n\n---\n\n${newBackstoryEntry}`);
       }
       
       const firstAiEntry: StoryEntry = { type: 'ai', content, imageUrl, imgPrompt, choices, isImageLoading: false };
@@ -198,6 +227,29 @@ const App: React.FC = () => {
   const handlePlayerAction = useCallback(async (action: string) => {
     if (!chatSession || !action.trim()) return;
 
+    // Capture state BEFORE the action is processed for the undo feature
+    try {
+        const history = await chatSession.getHistory();
+        const currentState: SavedGameState = {
+            storyLog,
+            worldData,
+            artStyle,
+            gameMasterMode,
+            chatHistory: history,
+            characterPortraits,
+            characterDescription,
+            characterClass,
+            alignment,
+            backstory,
+            isImageGenerationEnabled,
+        };
+        setPreviousGameState(currentState);
+    } catch (error) {
+        console.error("Error capturing undo state:", error);
+        setPreviousGameState(null); // Invalidate undo if history fails
+    }
+
+
     setGamePhase(GamePhase.LOADING);
     setError(null);
     const playerEntry: StoryEntry = { type: 'player', content: action };
@@ -205,7 +257,7 @@ const App: React.FC = () => {
 
     try {
       const aiResponseText = await getAiResponse(chatSession, action);
-      const { content, imageUrl, imgPrompt, choices, newCharacterDescription, newCharacterClass, newAlignment } = await processAiResponse(aiResponseText, artStyle);
+      const { content, imageUrl, imgPrompt, choices, newCharacterDescription, newCharacterClass, newAlignment, newBackstoryEntry } = await processAiResponse(aiResponseText, artStyle);
 
       if (newCharacterDescription) {
           handleUpdateCharacterImage(newCharacterDescription, artStyle);
@@ -216,6 +268,9 @@ const App: React.FC = () => {
       if (newAlignment) {
         setAlignment(newAlignment);
       }
+      if (newBackstoryEntry) {
+        setBackstory(prev => `${prev}\n\n---\n\n${newBackstoryEntry}`);
+      }
 
       const aiEntry: StoryEntry = { type: 'ai', content, imageUrl, imgPrompt, choices, isImageLoading: false };
       setStoryLog(prevLog => [...prevLog, aiEntry]);
@@ -225,7 +280,7 @@ const App: React.FC = () => {
       setError('Failed to get a response from the Game Master. Please try again.');
       setGamePhase(GamePhase.ERROR);
     }
-  }, [chatSession, processAiResponse, artStyle, handleUpdateCharacterImage]);
+  }, [chatSession, processAiResponse, artStyle, handleUpdateCharacterImage, storyLog, worldData, gameMasterMode, characterPortraits, characterDescription, characterClass, alignment, backstory, isImageGenerationEnabled]);
   
   const handleRegenerateImage = useCallback(async (storyIndex: number) => {
     const storyEntry = storyLog[storyIndex];
@@ -260,7 +315,7 @@ const App: React.FC = () => {
    const handleRegenerateCharacterImage = useCallback(async () => {
     if (!characterDescription) return;
     setIsCharacterImageLoading(true);
-    const fullPrompt = `A portrait of a character. ${characterDescription}`;
+    const fullPrompt = createCharacterPortraitPrompt(characterDescription);
     try {
       const newImageUrl = await generateImage(fullPrompt, artStyle, '1:1');
       setCharacterPortraits(prevPortraits => [...prevPortraits, { url: newImageUrl, prompt: characterDescription }]);
@@ -336,6 +391,7 @@ const App: React.FC = () => {
   const handleLoadGame = useCallback(() => {
     const savedState = loadGameState();
     loadGameFromState(savedState);
+    setPreviousGameState(null);
   }, [loadGameFromState]);
 
   const handleLoadFromFile = (file: File) => {
@@ -345,6 +401,7 @@ const App: React.FC = () => {
             const text = event.target?.result as string;
             const savedState = JSON.parse(text) as SavedGameState;
             loadGameFromState(savedState);
+            setPreviousGameState(null);
         } catch (e) {
             console.error("Failed to parse save file:", e);
             setError("The selected save file is corrupted or invalid.");
@@ -357,6 +414,37 @@ const App: React.FC = () => {
     };
     reader.readAsText(file);
   };
+  
+  const handleUndo = useCallback(() => {
+    if (!previousGameState) return;
+
+    setGamePhase(GamePhase.LOADING);
+    setError(null);
+
+    // Restore state from previousGameState
+    loadGameFromState(previousGameState);
+
+    // Clear previous state so you can't undo twice
+    setPreviousGameState(null);
+  }, [previousGameState, loadGameFromState]);
+
+  const handleRegenerateResponse = useCallback(() => {
+    // Fix: Replaced `findLast` with a compatible alternative to support older JS targets.
+    const lastPlayerAction = [...storyLog].reverse().find(e => e.type === 'player')?.content;
+
+    if (!previousGameState || !lastPlayerAction) {
+        setError("Cannot regenerate response. No previous state to restore.");
+        setGamePhase(GamePhase.PLAYING); // Stay in playing phase
+        return;
+    }
+
+    // Restore the previous state. This reverts the log and chat session.
+    loadGameFromState(previousGameState);
+
+    // Set the action to be re-processed by the useEffect hook.
+    // This ensures it runs *after* the state has been successfully updated.
+    setActionToRedo(lastPlayerAction);
+  }, [storyLog, previousGameState, loadGameFromState]);
 
   const handleRestart = () => {
     clearGameState();
@@ -374,6 +462,7 @@ const App: React.FC = () => {
     setCharacterClass('');
     setAlignment('');
     setBackstory('');
+    setPreviousGameState(null);
   }
   
   const handleUpdateWorldMemory = useCallback(async (newMemory: string) => {
@@ -641,6 +730,10 @@ Prompt: ${portrait.prompt}
                     onOpenMemoryModal={() => setIsMemoryModalOpen(true)}
                     isImageGenerationEnabled={isImageGenerationEnabled}
                     onOpenGallery={() => setIsGalleryOpen(true)}
+                    onUndo={handleUndo}
+                    canUndo={!!previousGameState}
+                    onRegenerateResponse={handleRegenerateResponse}
+                    canRegenerate={!!previousGameState && storyLog.length > 0 && storyLog[storyLog.length - 1].type === 'ai'}
                     onExportPdf={() => handleExportPdf().then(blob => {
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');

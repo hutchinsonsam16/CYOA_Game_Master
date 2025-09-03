@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { CharacterPortrait } from '../types';
 
 interface StatusSidebarProps {
@@ -13,15 +13,35 @@ interface StatusSidebarProps {
 }
 
 const StatusSidebar: React.FC<StatusSidebarProps> = ({ portrait, isImageLoading, onRegenerate, characterDescription, characterClass, alignment, backstory }) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isDescriptionOpen, setIsDescriptionOpen] = useState(true);
+  const [isLogOpen, setIsLogOpen] = useState(true);
+
   const handleCopy = () => {
     if (portrait && portrait.prompt) {
       navigator.clipboard.writeText(portrait.prompt);
     }
   };
 
+  const hasAnyDetails = characterDescription || characterClass || alignment || backstory;
+
   return (
     <div className="w-1/3 max-w-sm flex-shrink-0 flex flex-col bg-gray-800 p-4 rounded-lg shadow-2xl border border-gray-700">
-      <h2 className="text-xl font-bold text-indigo-300 mb-4 text-center font-serif border-b-2 border-gray-700 pb-2">Character</h2>
+      <div className="flex justify-between items-center mb-4 border-b-2 border-gray-700 pb-2">
+        <h2 className="text-xl font-bold text-indigo-300 font-serif">Character</h2>
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="p-1 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500"
+          aria-expanded={!isCollapsed}
+          aria-controls="character-details"
+          aria-label={isCollapsed ? 'Show character details' : 'Hide character details'}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transform transition-transform duration-300 ${isCollapsed ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+
       <div className="group relative aspect-square w-full bg-gray-900 rounded-md flex items-center justify-center border border-gray-600">
         {isImageLoading && (
            <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center transition-opacity duration-300 z-20">
@@ -70,34 +90,71 @@ const StatusSidebar: React.FC<StatusSidebarProps> = ({ portrait, isImageLoading,
         >
           {isImageLoading ? '...' : '↻ Regenerate Portrait'}
         </button>
-        <div className="flex-grow mt-4 pt-4 border-t-2 border-gray-700 overflow-y-auto custom-scrollbar">
-            {(characterClass || alignment || backstory) ? (
-            <>
+
+      {/* Collapsible Section */}
+      <div
+        id="character-details"
+        className={`flex-grow overflow-hidden transition-all duration-500 ease-in-out ${isCollapsed ? 'max-h-0' : 'max-h-[50vh]'}`}
+      >
+        <div className="h-full overflow-y-auto custom-scrollbar mt-4 pt-4 border-t-2 border-gray-700">
+            {hasAnyDetails ? (
+            <div className="space-y-4">
+                {characterDescription && (
+                    <div>
+                        <button
+                          onClick={() => setIsDescriptionOpen(!isDescriptionOpen)}
+                          className="w-full flex justify-between items-center text-left text-sm font-semibold text-gray-400 uppercase tracking-wider focus:outline-none hover:text-indigo-300 transition-colors"
+                          aria-expanded={isDescriptionOpen}
+                        >
+                          <span>Appearance</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transform transition-transform duration-300 ${isDescriptionOpen ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isDescriptionOpen ? 'max-h-screen mt-2' : 'max-h-0'}`}>
+                          <p className="text-sm text-gray-300 whitespace-pre-wrap font-serif leading-relaxed">
+                            {characterDescription}
+                          </p>
+                        </div>
+                    </div>
+                )}
                 {characterClass && (
-                <div className="mb-3">
+                <div>
                     <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Class</h3>
                     <p className="text-lg text-white font-serif">{characterClass}</p>
                 </div>
                 )}
                 {alignment && (
-                <div className="mb-3">
+                <div>
                     <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Alignment</h3>
                     <p className="text-lg text-white font-serif">{alignment}</p>
                 </div>
                 )}
                 {backstory && (
-                <div className="mb-3">
-                    <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Backstory</h3>
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap font-serif leading-relaxed">{backstory}</p>
+                <div>
+                    <button
+                        onClick={() => setIsLogOpen(!isLogOpen)}
+                        className="w-full flex justify-between items-center text-left text-sm font-semibold text-gray-400 uppercase tracking-wider focus:outline-none hover:text-indigo-300 transition-colors"
+                        aria-expanded={isLogOpen}
+                        >
+                        <span>Character Log</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transform transition-transform duration-300 ${isLogOpen ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
+                    <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isLogOpen ? 'max-h-[500px] mt-2 overflow-y-auto custom-scrollbar' : 'max-h-0'}`}>
+                        <p className="text-sm text-gray-300 whitespace-pre-wrap font-serif leading-relaxed pr-2">{backstory}</p>
+                    </div>
                 </div>
                 )}
-            </>
+            </div>
             ) : (
             <div className="text-center text-gray-500 pt-4">
-                <p>No additional character details provided.</p>
+                <p>No character details provided.</p>
             </div>
             )}
         </div>
+      </div>
     </div>
   );
 };
