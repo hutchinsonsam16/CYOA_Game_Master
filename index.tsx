@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { GoogleGenAI, Chat, Content, GenerateContentResponse, Type } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { pipeline, AutoTokenizer } from '@xenova/transformers';
 
 // ===================================================================================
 //  TYPES
@@ -21,6 +22,8 @@ enum GameMasterMode {
   NARRATIVE = 'Narrative Focus',
   ACTION = 'Action Focus',
 }
+
+type AiServiceMode = 'LOCAL' | 'GEMINI_API';
 
 interface WorldInfoEntry {
   key: string;
@@ -82,13 +85,14 @@ interface Settings {
     dynamicBackgrounds: boolean;
     gmMode: GameMasterMode;
     artStyle: string;
+    aiServiceMode: AiServiceMode;
 }
 
 // ===================================================================================
 //  CONSTANTS & CONFIG
 // ===================================================================================
 
-const SAVE_GAME_KEY = 'cyoa_saved_game_v4'; // Bumped version for new data structure
+const SAVE_GAME_KEY = 'cyoa_saved_game_v4';
 
 const artStyles: { [key: string]: string } = {
     'Photorealistic': 'Ultra-realistic, 8K resolution, sharp focus, detailed skin texture, professional studio lighting',
@@ -121,23 +125,26 @@ const loadGameState = (): SavedGameState | null => {
   try {
     const stateString = localStorage.getItem(SAVE_GAME_KEY);
     if (stateString === null) return null;
-    const state = JSON.parse(stateString) as any; // Parse as any to handle migration
+    const state = JSON.parse(stateString) as any; 
 
-    // Migration from old format (v3)
     if (state.fullWorldData && !state.worldInfo) {
       state.worldInfo = [{ key: 'Imported Lore', content: state.fullWorldData, enabled: true }];
       delete state.fullWorldData;
     }
     
-    // Ensure worldInfo is always a valid array
     if (!state.worldInfo || !Array.isArray(state.worldInfo)) {
         state.worldInfo = [];
+    }
+    
+    // Default to local if loaded save doesn't have a mode and API key is missing
+    if (!state.settings.aiServiceMode) {
+        state.settings.aiServiceMode = process.env.API_KEY ? 'GEMINI_API' : 'LOCAL';
     }
 
     return state as SavedGameState;
   } catch (error: any) {
     console.error("Failed to load game state:", error);
-    localStorage.removeItem(SAVE_GAME_KEY); // Clear corrupted data
+    localStorage.removeItem(SAVE_GAME_KEY); 
     return null;
   }
 };
@@ -151,79 +158,160 @@ const clearGameState = (): void => {
 };
 
 // ===================================================================================
-//  GEMINI API SERVICE
+//  UNIFIED AI SERVICE
 // ===================================================================================
-
-const API_KEY = process.env.API_KEY;
-let ai: GoogleGenAI | null = null;
-if (API_KEY) {
-    ai = new GoogleGenAI({ apiKey: API_KEY });
-}
-
-// Helper function for API calls with exponential backoff
-// FIX: Added a trailing comma inside the generic <T,> to prevent the TSX parser from interpreting it as a JSX tag.
 const withRetry = async <T,>(apiCall: () => Promise<T>, maxRetries = 3, initialDelay = 1000): Promise<T> => {
   let attempt = 1;
   let delay = initialDelay;
-
   while (attempt <= maxRetries) {
     try {
       return await apiCall();
     } catch (error: any) {
       const isRateLimitError = error.toString().includes('429') || error.toString().toLowerCase().includes('rate limit') || error.toString().toLowerCase().includes('resource_exhausted');
-
       if (isRateLimitError && attempt < maxRetries) {
         console.warn(`Rate limit hit. Retrying in ${delay}ms... (Attempt ${attempt + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Exponential backoff
+        delay *= 2;
       } else {
-        // For non-retryable errors or if it's the last attempt
         throw error;
       }
       attempt++;
     }
   }
-  // This part should not be reachable due to the throw in the catch block, but it's good for type safety.
   throw new Error('Exceeded maximum retry attempts');
 };
 
+class AiService {
+    private static instance: AiService;
+    public mode: AiServiceMode = 'GEMINI_API';
+    private geminiAi: GoogleGenAI | null = null;
+    private geminiChat: Chat | null = null;
+    private history: Content[] = [];
 
-const verifyApiKey = async (): Promise<boolean> => {
-    if (!ai) return false;
-    try {
-        await withRetry(() => ai!.models.generateContent({ model: 'gemini-2.5-flash', contents: 'test' }));
-        return true;
-    } catch (e: any) {
-        console.error("API Key validation failed:", e);
-        return false;
+    private localGenerator: any = null;
+    private localTokenizer: any = null;
+
+    private constructor() {}
+
+    public static getInstance(): AiService {
+        if (!AiService.instance) AiService.instance = new AiService();
+        return AiService.instance;
     }
-};
 
-const formatWorldInfoToString = (worldInfo: WorldInfoEntry[]): string => {
-    return worldInfo
-        .map(entry => `## ${entry.key}\n\n${entry.content}`)
-        .join('\n\n---\n\n');
+    public getMode(): AiServiceMode { return this.mode; }
+    public isGeminiReady(): boolean { return !!this.geminiAi; }
+
+    public async initializeGemini(apiKey: string): Promise<boolean> {
+        if (!apiKey) { this.geminiAi = null; return false; }
+        try {
+            const ai = new GoogleGenAI({ apiKey });
+            await withRetry(() => ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'test' }));
+            this.geminiAi = ai;
+            return true;
+        } catch (e) {
+            console.error("Gemini API Key validation failed:", e);
+            this.geminiAi = null;
+            return false;
+        }
+    }
+    
+    private async initializeLocalModel(progressCallback: (progress: any) => void) {
+        if (this.localGenerator && this.localTokenizer) return;
+        
+        const modelId = 'Xenova/phi-3-mini-4k-instruct_gguf';
+        progressCallback({ status: `Downloading Tokenizer (${modelId})...` });
+        this.localTokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: progressCallback });
+
+        progressCallback({ status: `Downloading Model (${modelId})...` });
+        this.localGenerator = await pipeline('text-generation', modelId, {
+            progress_callback: progressCallback,
+            quantization: 'q4',
+        });
+    }
+
+    public startChat(mode: AiServiceMode, systemInstruction: string, history: Content[]) {
+        this.mode = mode;
+        this.history = [...history];
+        if (mode === 'GEMINI_API' && this.geminiAi) {
+            this.geminiChat = this.geminiAi.chats.create({
+                model: 'gemini-2.5-flash', config: { systemInstruction }, history,
+            });
+        } else {
+            this.geminiChat = null;
+        }
+    }
+
+    public getHistory(): Content[] {
+        return this.history;
+    }
+    
+    public async generateTextStream(message: string, onChunk: (chunk: string) => void): Promise<string> {
+        if (this.mode !== 'GEMINI_API' || !this.geminiChat) {
+            throw new Error("Streaming is only supported in Gemini API mode.");
+        }
+        this.history.push({ role: 'user', parts: [{ text: message }] });
+        const stream = await withRetry(() => this.geminiChat!.sendMessageStream({ message }));
+        let fullText = "";
+        for await (const chunk of stream) {
+            const text = chunk.text;
+            fullText += text;
+            onChunk(text);
+        }
+        this.history.push({ role: 'model', parts: [{ text: fullText }] });
+        return fullText;
+    }
+
+    public async generateText(systemInstruction: string, message: string, progressCallback: (progress: any) => void): Promise<string> {
+        if (this.mode !== 'LOCAL') throw new Error("Non-streaming generation is only for Local mode.");
+        
+        await this.initializeLocalModel(progressCallback);
+        this.history.push({ role: 'user', parts: [{ text: message }] });
+
+        const chatHistory = [
+            { role: 'system', content: systemInstruction },
+            ...this.history.map(c => ({
+                role: c.role === 'user' ? 'user' : 'assistant',
+                content: c.parts.map(p => (p as any).text).join('\n')
+            })),
+        ];
+
+        const formattedPrompt = this.localTokenizer.apply_chat_template(chatHistory, { tokenize: false, add_generation_prompt: true });
+        
+        progressCallback({ status: 'Generating response...', file: 'Running model...' });
+        const result = await this.localGenerator(formattedPrompt, { max_new_tokens: 512, do_sample: true, temperature: 0.7, top_k: 50 });
+        const assistantResponse = result[0].generated_text.split('<|assistant|>').pop()?.trim() ?? '';
+        
+        this.history.push({ role: 'model', parts: [{ text: assistantResponse }] });
+        return assistantResponse;
+    }
+    
+    public async apiCall<T>(apiFn: (gemini: GoogleGenAI) => Promise<T>): Promise<T | null> {
+        if (!this.isGeminiReady()) {
+            console.warn("API call attempted without a valid Gemini API key.");
+            return null;
+        }
+        try {
+            return await withRetry(() => apiFn(this.geminiAi!));
+        } catch (error) {
+            console.error("An API call failed:", error);
+            return null;
+        }
+    }
 }
+
+const aiService = AiService.getInstance();
+
+const formatWorldInfoToString = (worldInfo: WorldInfoEntry[]): string => worldInfo.map(entry => `## ${entry.key}\n\n${entry.content}`).join('\n\n---\n\n');
 
 const summarizeWorldData = async (worldInfo: WorldInfoEntry[]): Promise<string> => {
-    if (!ai) return '';
     const worldData = formatWorldInfoToString(worldInfo);
     if (!worldData.trim()) return '';
-    const summarizationPrompt = `You are a world-building assistant. Your task is to read the following extensive world lore and distill it into a concise, high-level summary. This summary will serve as the core, long-term memory for a Game Master AI. Focus on the most critical facts: key locations, major factions, overarching history, fundamental rules of magic/technology, and the general tone of the world. The summary should be dense with information but brief enough to be used as a quick reference. Output ONLY the summary.
-
---- WORLD LORE START ---
-${worldData}
---- WORLD LORE END ---`;
-    try {
-        const response = await withRetry(() => ai!.models.generateContent({ model: 'gemini-2.5-flash', contents: summarizationPrompt }));
-        return response.text.trim();
-    } catch (error: any) {
-        console.error("Failed to summarize world data:", error);
-        return "Error summarizing world data.";
-    }
+    const summarizationPrompt = `You are a world-building assistant... Output ONLY the summary.\n\n--- WORLD LORE START ---\n${worldData}\n--- WORLD LORE END ---`;
+    const response = await aiService.apiCall(ai => ai.models.generateContent({ model: 'gemini-2.5-flash', contents: summarizationPrompt }));
+    return response?.text.trim() ?? "Error summarizing world data.";
 }
 
-const buildSystemInstruction = (worldSummary: string, character: Omit<Character, 'portraits'>, settings: Omit<Settings, 'generateSceneImages' | 'generateCharacterPortraits' | 'dynamicBackgrounds'>): string => {
+const buildSystemInstruction = (worldSummary: string, character: Omit<Character, 'portraits'>, settings: Omit<Settings, 'generateSceneImages' | 'generateCharacterPortraits' | 'dynamicBackgrounds' | 'aiServiceMode'>): string => {
   const getModeInstruction = (mode: GameMasterMode): string => {
     switch (mode) {
       case GameMasterMode.NARRATIVE: return "Prioritize deep character development, rich world-building, and descriptive prose.";
@@ -235,246 +323,101 @@ const buildSystemInstruction = (worldSummary: string, character: Omit<Character,
   return `
 You are a master storyteller and game master for an interactive text-based CYOA game.
 Your Game Master mode is: ${settings.gmMode}. ${getModeInstruction(settings.gmMode)}
-
 --- CORE RULES ---
-1.  **World Summary:** This is the core truth of the world. You have a perfect memory of the full lore, but use this summary for context. Additional, hyper-relevant details will be injected into prompts as needed.
+1.  **World Summary:** This is the core truth of the world.
     --- WORLD SUMMARY START ---
     ${worldSummary}
     --- WORLD SUMMARY END ---
-
 2.  **Player Character:** The player's appearance is "${character.description}". Class: ${character.class}. Alignment: ${character.alignment}. Backstory: ${character.backstory}.
-    **Skills:** ${JSON.stringify(character.skills)}. You MUST consider these skills when resolving actions. Success or failure can lead to skill updates.
-
-3.  **Character & World Progression:** You MUST signal changes using these tags:
-    *   To update appearance: \`[char-img-prompt]New, complete description.[/char-img-prompt]\`
-    *   To add to the character's journal: \`[update-backstory]Summary of key events.[/update-backstory]\`
-    *   To manage inventory: \`[add-item]Item Name|Description[/add-item]\` or \`[remove-item]Item Name[/remove-item]\`.
-    *   To update a skill: \`[update-skill]Skill Name|New Value[/update-skill]\` (e.g., [update-skill]Stealth|25[/update-skill]). Use this to reflect character growth.
-    *   **Background Prompt:** At the START of your narrative text, you MUST include a short, descriptive phrase for a background image. This is CRITICAL for setting the visual mood. Examples: \`[background-prompt]dark mossy forest[/background-prompt]\`, \`[background-prompt]bustling medieval city market[/background-prompt]\`, \`[background-prompt]eerie dungeon corridor[/background-prompt]\`.
-
-4.  **Combat & Skill Checks:** You MUST resolve skill-based challenges and combat using these tags, which should be placed logically within the narrative.
-    *   For non-combat challenges: \`[skill-check]Skill: Perception, Target: 15, Result: Success[/skill-check]\`. Base the outcome on the character's skill value.
-    *   For combat actions: \`[combat]Event: Player Attack, Weapon: Sword, Target: Goblin, Roll: 18, Result: Hit, Damage: 7[/combat]\`. You will track enemy health internally and narrate the results. Be descriptive.
-
-5.  **Image Prompts:** Generate image prompts for scenes (\`[img-prompt]\`) that are faithful to the narrative and the art style: "${settings.artStyle}". Follow safety rules strictly: focus on cinematic language, tension, and atmosphere, NOT explicit violence or gore.
-
-6.  **Response Format:** Structure EVERY response in this sequence:
-    1.  \`[background-prompt]\` (MUST be first)
-    2.  Story Text (including any skill-check or combat tags)
-    3.  \`[img-prompt]\`
-    4.  Any other update tags (\`[char-img-prompt]\`, etc.)
-    5.  3-4 distinct player choices, each in its own \`[choice]\` tag.
-    6.  End with the exact question: "What do you do?"
+    **Skills:** ${JSON.stringify(character.skills)}. You MUST consider these skills when resolving actions.
+3.  **Turn-by-Turn Context:** Each prompt you receive will begin with a [CURRENT CHARACTER STATE] block. You MUST use this information.
+4.  **Character & World Progression:** You MUST signal changes using these tags: \`[char-img-prompt]\`, \`[update-backstory]\`, \`[add-item]\`, \`[remove-item]\`, \`[update-skill]\`.
+5.  **Combat & Skill Checks:** You MUST resolve challenges using \`[skill-check]\` and \`[combat]\` tags.
+6.  **Image Prompts:** Generate image prompts for scenes (\`[img-prompt]\`) that are faithful to the narrative and the art style: "${settings.artStyle}". Follow safety rules strictly.
+7.  **Response Format:** Structure EVERY response in this sequence: 1. \`[background-prompt]\` (MUST be first) 2. Story Text. 3. \`[img-prompt]\`. 4. Any other update tags. 5. 3-4 distinct player choices in \`[choice]\` tags. 6. End with "What do you do?"
 `;
 };
 
-const initializeChat = (worldSummary: string, character: Omit<Character, 'portraits'>, settings: Omit<Settings, 'generateSceneImages' | 'generateCharacterPortraits' | 'dynamicBackgrounds'>, history?: Content[]): Chat | null => {
-  if (!ai) return null;
-  const systemInstruction = buildSystemInstruction(worldSummary, character, settings);
-  return ai.chats.create({ model: 'gemini-2.5-flash', config: { systemInstruction }, history });
-};
-
 const generateImage = async (prompt: string, artStyle: string, aspectRatio: '16:9' | '1:1'): Promise<string | undefined> => {
-  if (!ai) return undefined;
-  try {
-    const fullPrompt = `${artStyle}, ${prompt}`;
-    const response = await withRetry(() => ai!.models.generateImages({
+    const response = await aiService.apiCall(ai => ai.models.generateImages({
       model: 'imagen-4.0-generate-001',
-      prompt: fullPrompt,
+      prompt: `${artStyle}, ${prompt}`,
       config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio },
     }));
-    const base64ImageBytes = response.generatedImages[0]?.image.imageBytes;
+    const base64ImageBytes = response?.generatedImages[0]?.image.imageBytes;
     return base64ImageBytes ? `data:image/jpeg;base64,${base64ImageBytes}` : undefined;
-  } catch (error: any) {
-    console.error("Error generating image:", error);
-    return undefined;
-  }
 };
 
 const enhanceWorldEntry = async (text: string): Promise<string> => {
-    if (!ai || !text.trim()) return text;
-    const prompt = `You are a creative writing assistant specializing in world-building. Take the following piece of lore and enrich it with compelling details, ensuring it remains consistent with the original themes. Preserve the user's core concepts but expand upon them. Output ONLY the enhanced text.\n\n--- USER LORE ---\n${text}`;
-    try {
-        const response = await withRetry(() => ai!.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt }));
-        return response.text.trim() || text;
-    } catch (error: any) {
-        console.error(`Failed to enhance world entry:`, error);
-        return text;
-    }
+    if (!text.trim()) return text;
+    const prompt = `You are a creative writing assistant... Output ONLY the enhanced text.\n\n--- USER LORE ---\n${text}`;
+    const response = await aiService.apiCall(ai => ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt }));
+    return response?.text.trim() || text;
 };
 
 const structureWorldDataWithAI = async (text: string): Promise<WorldInfoEntry[]> => {
-    if (!ai || !text.trim()) return [];
-    const prompt = `You are a master loremaster and world-building analyst. Your task is to meticulously parse the following unstructured lore document and transform it into a well-organized, structured format.
-
-**Instructions:**
-1.  **Identify Core Categories:** Read the entire document to understand its scope. Identify major categories such as "Geography", "Factions & Groups", "Key Characters", "Timeline & History", "Magic & Technology", "Culture & Society", and "Bestiary". Use these categories or create more specific ones if the text supports it (e.g., "The Kingdom of Eldoria" instead of just "Factions").
-2.  **Create an Overview:** If the document provides a general summary or introduction, place it under a key named "Overview". If not, create a brief one yourself to capture the essence of the world.
-3.  **Preserve Detail:** Do not summarize aggressively. The goal is to organize, not to lose information. Preserve the original text as much as possible within the appropriate categories.
-4.  **Handle Ambiguity:** If a piece of information could fit into multiple categories, place it in the most relevant one.
-5.  **Output Format:** Your final output MUST be a JSON array of objects. Each object must have a "key" (the category name as a string) and a "content" (the corresponding lore as a string).
-
---- LORE DOCUMENT ---
-${text}
---- END LORE DOCUMENT ---`;
-
+    if (!text.trim()) return [];
+    const prompt = `You are a master loremaster... Your final output MUST be a JSON array of objects...\n\n--- LORE DOCUMENT ---\n${text}\n--- END LORE DOCUMENT ---`;
+    const response = await aiService.apiCall(ai => ai.models.generateContent({
+        model: "gemini-2.5-flash", contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { key: { type: Type.STRING }, content: { type: Type.STRING } }, required: ["key", "content"] } } },
+    }));
+    if (!response) return [{ key: "Imported Lore", content: text, isUnstructured: true }];
     try {
-        const response = await withRetry(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            key: { type: Type.STRING },
-                            content: { type: Type.STRING },
-                        },
-                        required: ["key", "content"],
-                    },
-                },
-            },
-        }));
-
         let jsonStr = response.text.trim();
-        if (jsonStr.startsWith('```json')) {
-          jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
-        }
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
         return JSON.parse(jsonStr) as WorldInfoEntry[];
-
-    } catch (error: any) {
+    } catch (error) {
         console.error("Failed to structure world data with AI:", error);
-        // Fallback: return the whole text as a single entry
         return [{ key: "Imported Lore", content: text, isUnstructured: true }];
     }
 };
 
 const generateCharacterDetails = async (characterInput: CharacterInput): Promise<Partial<CharacterInput>> => {
-    if (!ai) return {};
-
-    const prompt = `You are a character creation assistant for a fantasy RPG. Based on the provided character details, fill in any missing information and enhance any provided information.
-Return a JSON object with the keys "characterClass", "alignment", "backstory", and "skills".
-
-- **Appearance:** ${characterInput.description}
-- **Class:** ${characterInput.characterClass || '(Not specified, please generate)'}
-- **Alignment:** ${characterInput.alignment || '(Not specified, please generate)'}
-- **Backstory:** ${characterInput.backstory || '(Not specified, please generate a short one)'}
-- **Skills:** ${characterInput.skills || '(Not specified, please generate)'}
-
-**Instructions:**
-1.  **characterClass**: If the class is not specified or seems too generic (e.g., "Fighter"), provide a more creative and specific class name (e.g., "Sellsword Captain"). Otherwise, use the provided one and enhance it if possible.
-2.  **alignment**: Based on the character's description and backstory, select the most fitting alignment from this list: ${alignments.join(', ')}. If the user provided one, you can keep it or choose a more appropriate one if it strongly conflicts with the character's persona.
-3.  **backstory**: If the backstory is not specified, write a brief, evocative backstory (2-3 sentences). If a backstory is provided, expand upon it, adding compelling details or a plot hook, but keep the user's original ideas.
-4.  **skills**: If skills are not specified, generate a list of core attributes (Strength, Agility, Intelligence, Charisma, Perception) and 2-3 other relevant skills. If skills are provided, you can add 1-2 more thematically appropriate skills. The final output must be a single string in the format "Strength: 12, Agility: 15, Perception: 14, Swords: 8" with all values between 5 and 20.
-`;
-
+    const prompt = `You are a character creation assistant... Return a JSON object...\n\n- **Appearance:** ${characterInput.description}...`;
+    const response = await aiService.apiCall(ai => ai.models.generateContent({
+        model: "gemini-2.5-flash", contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { characterClass: { type: Type.STRING }, alignment: { type: Type.STRING }, backstory: { type: Type.STRING }, skills: { type: Type.STRING } }, required: ["characterClass", "alignment", "backstory", "skills"] } },
+    }));
+    if (!response) return {};
     try {
-        const response = await withRetry(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        characterClass: { type: Type.STRING },
-                        alignment: { type: Type.STRING },
-                        backstory: { type: Type.STRING },
-                        skills: { type: Type.STRING },
-                    },
-                    required: ["characterClass", "alignment", "backstory", "skills"],
-                },
-            },
-        }));
-        
         let jsonStr = response.text.trim();
-        // Clean potential markdown formatting
-        if (jsonStr.startsWith('```json')) {
-          jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
-        }
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
         const details = JSON.parse(jsonStr);
-        
-        return {
-            characterClass: details.characterClass,
-            alignment: details.alignment,
-            backstory: details.backstory,
-            skills: details.skills,
-        };
-
-    } catch (error: any) {
+        return { characterClass: details.characterClass, alignment: details.alignment, backstory: details.backstory, skills: details.skills };
+    } catch (error) {
         console.error("Failed to generate character details:", error);
-        return {}; // Return empty object on failure to avoid crashing
+        return {};
     }
 };
 
 const generateCharacterFlavor = async (character: Omit<Character, 'portraits'>): Promise<{ class: string, quirk: string }> => {
-    if (!ai) return { class: character.class, quirk: '' };
-
-    const prompt = `You are a creative assistant for a fantasy RPG. Based on the character details, generate a more evocative class name and a unique, brief character quirk.
-
-**Character Details:**
-- **Appearance:** ${character.description}
-- **Class:** ${character.class}
-- **Alignment:** ${character.alignment}
-- **Backstory:** ${character.backstory}
-- **Skills:** ${JSON.stringify(character.skills)}
-
-**Instructions:**
-1.  **Evocative Class:** Brainstorm a more descriptive and flavorful title for the character's class. For example, a "Rogue" could become a "Shadow-foot Cutpurse" or a "Fighter" could be a "Veteran Sellsword". The new class name should be concise (2-3 words).
-2.  **Unique Quirk:** Create a short, memorable character quirk (a habit, a fear, a small belief). The quirk should be a single sentence. Example: "Always checks for an exit route upon entering a new room," or "Has a habit of flipping a silver coin."
-3.  **Output:** Return a JSON object with two keys: "className" and "quirk".
-
-Example Output:
-{
-  "className": "Grave-touched Sorcerer",
-  "quirk": "Tends to talk to small, inanimate objects when stressed."
-}
-`;
-
+    const prompt = `You are a creative assistant... Return a JSON object with two keys: "className" and "quirk".\n\n**Character Details:**\n- **Appearance:** ${character.description}...`;
+    const response = await aiService.apiCall(ai => ai.models.generateContent({
+        model: "gemini-2.5-flash", contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { className: { type: Type.STRING }, quirk: { type: Type.STRING } }, required: ["className", "quirk"] } },
+    }));
+    if (!response) return { class: character.class, quirk: '' };
     try {
-        const response = await withRetry(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        className: { type: Type.STRING },
-                        quirk: { type: Type.STRING },
-                    },
-                    required: ["className", "quirk"],
-                },
-            },
-        }));
-
         let jsonStr = response.text.trim();
-        if (jsonStr.startsWith('```json')) {
-          jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
-        }
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
         const details = JSON.parse(jsonStr);
         return { class: details.className, quirk: details.quirk };
-
-    } catch (error: any) {
+    } catch (error) {
         console.error("Failed to generate character flavor:", error);
-        return { class: character.class, quirk: '' }; // Return original class on failure
+        return { class: character.class, quirk: '' };
     }
 };
-
 
 const retrieveRelevantSnippets = (query: string, worldInfo: WorldInfoEntry[], count = 3): string => {
     const corpus = formatWorldInfoToString(worldInfo);
     const sentences = corpus.split(/(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s/);
     const queryWords = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-
     const scoredSentences = sentences.map(sentence => {
         const sentenceWords = new Set(sentence.toLowerCase().split(/\s+/));
         const score = [...sentenceWords].filter(word => queryWords.has(word)).length;
         return { sentence, score };
     }).filter(item => item.score > 0);
-
     scoredSentences.sort((a, b) => b.score - a.score);
     return scoredSentences.slice(0, count).map(item => item.sentence).join('\n');
 };
@@ -500,7 +443,8 @@ const SetupScreen: React.FC<{
   onContinue: () => void;
   onLoadFromFile: (file: File) => void;
   hasSavedGame: boolean;
-}> = ({ onStart, onContinue, onLoadFromFile, hasSavedGame }) => {
+  apiStatus: 'checking' | 'valid' | 'invalid' | 'missing';
+}> = ({ onStart, onContinue, onLoadFromFile, hasSavedGame, apiStatus }) => {
   const [worldInfo, setWorldInfo] = useState<WorldInfoEntry[]>([{ key: 'Main Lore', content: '' }]);
   const [worldSummary, setWorldSummary] = useState<string | null>(null);
   const [openWorldEntry, setOpenWorldEntry] = useState<number | null>(0);
@@ -520,11 +464,19 @@ const SetupScreen: React.FC<{
       generateSceneImages: true,
       generateCharacterPortraits: true,
       dynamicBackgrounds: true,
+      aiServiceMode: apiStatus === 'valid' ? 'GEMINI_API' : 'LOCAL',
   });
   const saveFileInputRef = useRef<HTMLInputElement>(null);
   const worldFileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (apiStatus !== 'valid' && settings.aiServiceMode === 'GEMINI_API') {
+        setSettings(s => ({ ...s, aiServiceMode: 'LOCAL' }));
+    }
+  }, [apiStatus, settings.aiServiceMode]);
+
   const isWorldDataValid = useMemo(() => worldInfo.some(entry => entry.key.trim() && entry.content.trim()), [worldInfo]);
+  const isApiMode = useMemo(() => settings.aiServiceMode === 'GEMINI_API' && apiStatus === 'valid', [settings.aiServiceMode, apiStatus]);
   const isBusy = isFileLoading || isStructuringEntry !== null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -546,10 +498,10 @@ const SetupScreen: React.FC<{
     try {
         const entryToStructure = worldInfo[index];
         const structuredData = await structureWorldDataWithAI(entryToStructure.content);
-        if (structuredData.length > 0) {
+        if (structuredData && structuredData.length > 0) {
             setWorldInfo(prev => {
                 const newInfo = [...prev];
-                newInfo.splice(index, 1, ...structuredData); // Replace one entry with multiple structured ones
+                newInfo.splice(index, 1, ...structuredData);
                 return newInfo;
             });
         } else {
@@ -565,34 +517,24 @@ const SetupScreen: React.FC<{
   const processLoadedWorld = useCallback(async (entries: WorldInfoEntry[]) => {
       setWorldInfo(entries);
       setOpenWorldEntry(entries.length > 0 ? 0 : null);
-      const fullText = formatWorldInfoToString(entries);
-      if (fullText.length > 10000) {
-          try {
-            const summary = await summarizeWorldData(entries);
-            setWorldSummary(summary);
-          } catch {
-             setWorldSummary("Failed to generate summary.")
-          }
-      } else {
-          setWorldSummary(null);
+      if(isApiMode) {
+        const fullText = formatWorldInfoToString(entries);
+        if (fullText.length > 10000) {
+            try {
+                const summary = await summarizeWorldData(entries);
+                setWorldSummary(summary);
+            } catch { setWorldSummary("Failed to generate summary.") }
+        } else {
+            setWorldSummary(null);
+        }
       }
-  }, []);
+  }, [isApiMode]);
 
-  const addWorldInfoEntry = () => {
-    setWorldInfo(prev => [...prev, { key: '', content: '' }]);
-    setOpenWorldEntry(worldInfo.length);
-  };
-
-  const updateWorldInfo = (index: number, field: 'key' | 'content', value: string) => {
-    setWorldInfo(prev => prev.map((entry, i) => i === index ? { ...entry, [field]: value } : entry));
-  };
-  
+  const addWorldInfoEntry = () => { setWorldInfo(prev => [...prev, { key: '', content: '' }]); setOpenWorldEntry(worldInfo.length); };
+  const updateWorldInfo = (index: number, field: 'key' | 'content', value: string) => { setWorldInfo(prev => prev.map((entry, i) => i === index ? { ...entry, [field]: value } : entry)); };
   const removeWorldInfoEntry = (index: number) => {
-    if (worldInfo.length > 1) {
-        setWorldInfo(prev => prev.filter((_, i) => i !== index));
-    } else {
-        setWorldInfo([{ key: 'Main Lore', content: '' }]); // Reset if it's the last one
-    }
+    if (worldInfo.length > 1) setWorldInfo(prev => prev.filter((_, i) => i !== index));
+    else setWorldInfo([{ key: 'Main Lore', content: '' }]);
     if (openWorldEntry === index) setOpenWorldEntry(null);
   };
   
@@ -611,14 +553,12 @@ const SetupScreen: React.FC<{
         if (file.name.endsWith('.json')) {
             try {
                 const jsonData = JSON.parse(content);
-                if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
-                    await processLoadedWorld(jsonData);
-                } else { alert('Invalid JSON structure for world data.'); }
+                if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) await processLoadedWorld(jsonData);
+                else alert('Invalid JSON structure for world data.');
             } catch (err) { alert('Failed to parse JSON file.'); }
         } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
             const headerRegex = /^(#{1,6})\s+(.*)$/gm;
             const matches = [...content.matchAll(headerRegex)];
-
             if (matches.length > 0) {
                 const structuredEntries: WorldInfoEntry[] = [];
                 for (let i = 0; i < matches.length; i++) {
@@ -626,9 +566,7 @@ const SetupScreen: React.FC<{
                     const startIndex = matches[i].index! + matches[i][0].length;
                     const endIndex = i + 1 < matches.length ? matches[i + 1].index! : content.length;
                     const entryContent = content.substring(startIndex, endIndex).trim();
-                    if (key && entryContent) {
-                        structuredEntries.push({ key, content: entryContent });
-                    }
+                    if (key && entryContent) structuredEntries.push({ key, content: entryContent });
                 }
                 await processLoadedWorld(structuredEntries);
             } else {
@@ -644,21 +582,11 @@ const SetupScreen: React.FC<{
     }
   }, [processLoadedWorld]);
 
-
-  const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
-      setSettings(s => ({ ...s, [key]: value }));
-  };
+  const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => { setSettings(s => ({ ...s, [key]: value })); };
 
   return (
     <div className="w-full max-w-3xl bg-slate-800 p-6 sm:p-8 rounded-xl shadow-2xl border border-slate-700 animate-fade-in">
-        <WorldDataToolsModal 
-            isOpen={isWorldToolsModalOpen} 
-            onClose={() => setIsWorldToolsModalOpen(false)} 
-            onLoadData={(data) => {
-                processLoadedWorld(data);
-                setIsWorldToolsModalOpen(false);
-            }} 
-        />
+        <WorldDataToolsModal isOpen={isWorldToolsModalOpen} onClose={() => setIsWorldToolsModalOpen(false)} onLoadData={(data) => { processLoadedWorld(data); setIsWorldToolsModalOpen(false); }} isApiMode={isApiMode} />
         <div className="mb-6">
           <div className="flex flex-col sm:flex-row gap-4">
             {hasSavedGame && <button type="button" onClick={onContinue} className="flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition-all duration-300">Load Game</button>}
@@ -692,22 +620,23 @@ const SetupScreen: React.FC<{
                                     <textarea value={entry.content} onChange={(e) => updateWorldInfo(index, 'content', e.target.value)} placeholder="Describe the lore for this entry..." className="w-full h-32 bg-slate-900 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 resize-y" />
                                     <div className="flex justify-between items-center">
                                         <div>
-                                            <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim() || isStructuringEntry !== null} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
+                                            <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim() || isStructuringEntry !== null || !isApiMode} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500 disabled:cursor-not-allowed">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
                                             {entry.isUnstructured && (
-                                                <button type="button" onClick={() => handleStructureEntry(index)} disabled={isStructuringEntry !== null || isEnhancing !== null} className="ml-4 text-xs font-semibold text-teal-300 hover:text-teal-200 disabled:text-slate-500">
+                                                <button type="button" onClick={() => handleStructureEntry(index)} disabled={isStructuringEntry !== null || isEnhancing !== null || !isApiMode} className="ml-4 text-xs font-semibold text-teal-300 hover:text-teal-200 disabled:text-slate-500 disabled:cursor-not-allowed">
                                                     {isStructuringEntry === index ? 'Structuring...' : 'Structure with AI 🤖'}
                                                 </button>
                                             )}
                                         </div>
                                         <button type="button" onClick={() => removeWorldInfoEntry(index)} className="text-xs font-semibold text-red-400 hover:text-red-300">Delete Entry</button>
                                     </div>
+                                     {!isApiMode && <p className="text-xs text-slate-500 mt-1">AI world tools require Gemini API Mode.</p>}
                                 </div>
                             )}
                         </div>
                     ))}
                     <button type="button" onClick={addWorldInfoEntry} className="w-full bg-slate-700/50 text-slate-300 font-semibold py-2 rounded hover:bg-slate-700 transition">Add Lore Entry</button>
                 </div>
-                 <p className="text-xs text-slate-500 mt-1">For large worlds, a summary will be automatically generated when you load a file.</p>
+                 <p className="text-xs text-slate-500 mt-1">For large worlds (API Mode), a summary will be automatically generated when you load a file.</p>
             </div>
             <div>
                 <h3 className="text-xl font-semibold text-indigo-300 mb-2">2. Create Your Character</h3>
@@ -715,7 +644,7 @@ const SetupScreen: React.FC<{
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="text-sm text-slate-400 mb-1 block">Class (Optional)</label>
-                        <input type="text" value={characterClass} onChange={(e) => setCharacterClass(e.target.value)} placeholder="Leave blank for AI generation" className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
+                        <input type="text" value={characterClass} onChange={(e) => setCharacterClass(e.target.value)} placeholder={isApiMode ? "Leave blank for AI generation" : "e.g., Rogue, Mage"} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
                     </div>
                     <div>
                         <label className="text-sm text-slate-400 mb-1 block">Alignment</label>
@@ -725,11 +654,11 @@ const SetupScreen: React.FC<{
                     </div>
                 </div>
                 <div className="mt-4">
-                    <label className="text-sm text-slate-400">Backstory (Optional - AI will generate or enhance)</label>
+                    <label className="text-sm text-slate-400">Backstory (Optional{isApiMode && " - AI will generate or enhance"})</label>
                     <textarea value={backstory} onChange={(e) => setBackstory(e.target.value)} placeholder="Provide a few ideas, or leave blank for a surprise..." className="w-full h-24 bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition resize-none" />
                 </div>
                 <div className="mt-4">
-                     <label className="text-sm text-slate-400">Skills (Optional - AI will generate or enhance)</label>
+                     <label className="text-sm text-slate-400">Skills (Optional{isApiMode && " - AI will generate or enhance"})</label>
                      <input type="text" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="e.g., Persuasion: 10, or leave blank" className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
                 </div>
             </div>
@@ -742,10 +671,12 @@ const SetupScreen: React.FC<{
                 <div className="space-y-3 bg-slate-900/50 p-4 rounded-lg border border-slate-700">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-semibold text-slate-300 mb-1">Art Style</label>
-                            <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500">
-                                {Object.entries(artStyles).map(([name, prompt]) => (<option key={name} value={prompt}>{name}</option>))}
+                           <label className="block text-sm font-semibold text-slate-300 mb-1">AI Model</label>
+                            <select value={settings.aiServiceMode} onChange={(e) => handleSettingChange('aiServiceMode', e.target.value as AiServiceMode)} disabled={apiStatus !== 'valid'} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-800 disabled:cursor-not-allowed">
+                                <option value="LOCAL">Local Model (In-Browser)</option>
+                                <option value="GEMINI_API" disabled={apiStatus !== 'valid'}>Gemini API (Cloud)</option>
                             </select>
+                            {apiStatus !== 'valid' && <p className="text-xs text-slate-500 mt-1">Gemini API requires a valid API key.</p>}
                         </div>
                         <div>
                             <label className="block text-sm font-semibold text-slate-300 mb-1">GM Mode</label>
@@ -753,10 +684,16 @@ const SetupScreen: React.FC<{
                                 {Object.values(GameMasterMode).map((mode) => (<option key={mode} value={mode}>{mode}</option>))}
                             </select>
                         </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-1">Art Style</label>
+                            <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} disabled={!isApiMode} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-800 disabled:cursor-not-allowed">
+                                {Object.entries(artStyles).map(([name, prompt]) => (<option key={name} value={prompt}>{name}</option>))}
+                            </select>
+                        </div>
                     </div>
                      <div className="pt-2 border-t border-slate-600/50 space-y-2">
-                        <label className="flex items-center justify-between cursor-pointer"><span className="text-slate-200">Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-600 text-indigo-600 focus:ring-indigo-500" /></label>
-                        <label className="flex items-center justify-between cursor-pointer"><span className="text-slate-200">Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-600 text-indigo-600 focus:ring-indigo-500" /></label>
+                        <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-slate-500' : 'text-slate-200'}`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-slate-500 bg-slate-600 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
+                        <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-slate-500' : 'text-slate-200'}`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-slate-500 bg-slate-600 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
                     </div>
                 </div>
             </div>
@@ -776,6 +713,7 @@ const StoryBlock: React.FC<{
 }> = React.memo(({ entry, onRegenerateImage, onRegenerateResponse, isLastEntry, canRegenerate, settings }) => {
   const RedoIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5" /><path strokeLinecap="round" strokeLinejoin="round" d="M20 12A8 8 0 1013 5.26" /></svg>);
   const storyText = entry.content.replace(/what do you do\?$/i, '').trim();
+  const isApiMode = settings.aiServiceMode === 'GEMINI_API';
   
   return (
     <div className="mb-8 animate-fade-in group">
@@ -783,10 +721,10 @@ const StoryBlock: React.FC<{
         <div className="relative mb-4">
           <div className="rounded-lg overflow-hidden border-2 border-slate-700/50 shadow-lg aspect-video bg-slate-900 flex items-center justify-center">
             {entry.imageUrl ? <img src={entry.imageUrl} alt="A scene from the story" className="w-full h-full object-cover" /> :
-              <div className="p-4 text-center"><h3 className="font-semibold text-yellow-400">{settings.generateSceneImages ? 'Image Generation Failed' : 'Scene Image Generation Disabled'}</h3><p className="text-slate-400 text-xs mt-1">{settings.generateSceneImages ? 'The prompt was likely blocked by safety filters.' : 'Enable scene image generation in settings.'}</p></div>}
+              <div className="p-4 text-center"><h3 className="font-semibold text-yellow-400">{isApiMode ? 'Image Generation Failed' : 'Scene Image Generation Disabled'}</h3><p className="text-slate-400 text-xs mt-1">{isApiMode ? 'The prompt was likely blocked by safety filters.' : 'Enable scene image generation in settings (requires API Mode).'}</p></div>}
           </div>
           {entry.isImageLoading && <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-lg"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>}
-          {!entry.isImageLoading && entry.imgPrompt && settings.generateSceneImages && <button onClick={onRegenerateImage} className="absolute bottom-3 right-3 bg-indigo-600/80 text-white text-xs font-bold py-1 px-3 rounded-full hover:bg-indigo-700 backdrop-blur-sm shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">↻ Regenerate</button>}
+          {!entry.isImageLoading && entry.imgPrompt && settings.generateSceneImages && isApiMode && <button onClick={onRegenerateImage} className="absolute bottom-3 right-3 bg-indigo-600/80 text-white text-xs font-bold py-1 px-3 rounded-full hover:bg-indigo-700 backdrop-blur-sm shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">↻ Regenerate</button>}
         </div>
       }
       <div className="bg-slate-700/30 p-4 sm:p-5 rounded-lg border border-slate-700/50 shadow-md">
@@ -810,8 +748,22 @@ const StatusSidebar: React.FC<{
   onOpenWorldKnowledge: () => void;
   apiStatus: 'checking' | 'valid' | 'invalid' | 'missing';
   settings: Settings;
-}> = React.memo(({ character, inventory, isImageLoading, onRegenerate, onOpenWorldKnowledge, apiStatus, settings }) => {
+  onItemAction: (action: string) => void;
+}> = React.memo(({ character, inventory, isImageLoading, onRegenerate, onOpenWorldKnowledge, apiStatus, settings, onItemAction }) => {
   const latestPortrait = character.portraits[character.portraits.length - 1];
+  const [activeItem, setActiveItem] = useState<InventoryItem | null>(null);
+  const inventoryRef = useRef<HTMLDivElement>(null);
+  const isApiMode = settings.aiServiceMode === 'GEMINI_API' && apiStatus === 'valid';
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (inventoryRef.current && !inventoryRef.current.contains(event.target as Node)) {
+        setActiveItem(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const ApiStatusIndicator = () => {
     const statusMap = {
@@ -834,19 +786,55 @@ const StatusSidebar: React.FC<{
       <div className="group relative aspect-square w-full bg-slate-900 rounded-md flex items-center justify-center border border-slate-600 overflow-hidden">
         {isImageLoading ? <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-20"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" className="opacity-75"></path></svg></div> :
          latestPortrait?.url ? <img src={latestPortrait.url} alt="Character portrait" className="w-full h-full object-cover" /> :
-         <div className="p-4 text-center text-slate-500">{settings.generateCharacterPortraits ? 'No portrait generated.' : 'Character Portrait Generation Disabled.'}</div>
+         <div className="p-4 text-center text-slate-500">{settings.generateCharacterPortraits && isApiMode ? 'No portrait generated.' : 'Character Portrait Generation Disabled.'}</div>
         }
       </div>
       <div className="grid grid-cols-2 gap-2 mt-2">
-        <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits} className="w-full bg-indigo-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed transition">
-          {settings.generateCharacterPortraits ? '↻ Portrait' : 'Portraits Off'}
+        <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits || !isApiMode} className="w-full bg-indigo-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed transition">
+          {settings.generateCharacterPortraits && isApiMode ? '↻ Portrait' : 'Portraits Off'}
         </button>
         <button onClick={onOpenWorldKnowledge} className="w-full bg-sky-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-sky-700 transition">Search World Lore</button>
       </div>
 
       <div className="flex-grow overflow-y-auto custom-scrollbar mt-4 pt-4 border-t-2 border-slate-700 space-y-4">
         <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Appearance</h3><p className="text-sm text-slate-300 font-serif leading-relaxed">{character.description}</p></div>
-        {inventory.length > 0 && <div><h3 className="text-sm font-semibold text-slate-400 uppercase mb-2">Inventory</h3><div className="flex flex-wrap gap-2">{inventory.map(item => <div key={item.name} title={item.description} className="bg-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-full cursor-help">{item.name}</div>)}</div></div>}
+        {inventory.length > 0 && 
+            <div ref={inventoryRef}>
+              <h3 className="text-sm font-semibold text-slate-400 uppercase mb-2">Inventory</h3>
+              <div className="flex flex-wrap gap-2">
+                {inventory.map(item => (
+                  <div key={item.name} className="relative">
+                    <button 
+                      onClick={() => setActiveItem(prev => prev?.name === item.name ? null : item)}
+                      className="bg-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-full hover:bg-slate-600 transition-colors"
+                    >
+                      {item.name}
+                    </button>
+                    {activeItem?.name === item.name && (
+                      <div className="absolute z-20 w-56 bg-slate-900 border border-slate-600 rounded-lg shadow-xl p-3 left-0 mt-2 animate-fade-in-up">
+                        <p className="text-sm font-semibold text-white mb-1">{item.name}</p>
+                        <p className="text-xs text-slate-300 mb-3 leading-relaxed">{item.description}</p>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => { onItemAction(`I use the ${item.name}.`); setActiveItem(null); }} 
+                            className="flex-1 bg-indigo-600 text-white text-xs font-bold py-1.5 px-2 rounded-md hover:bg-indigo-700 transition"
+                          >
+                            Use
+                          </button>
+                          <button 
+                            onClick={() => { onItemAction(`I inspect the ${item.name}.`); setActiveItem(null); }} 
+                            className="flex-1 bg-sky-600 text-white text-xs font-bold py-1.5 px-2 rounded-md hover:bg-sky-700 transition"
+                          >
+                            Inspect
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          }
         <div className="grid grid-cols-2 gap-4">
             {character.class && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Class</h3><p className="text-lg text-white font-serif">{character.class}</p></div>}
             {character.alignment && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Alignment</h3><p className="text-lg text-white font-serif">{character.alignment}</p></div>}
@@ -863,8 +851,10 @@ const SettingsModal: React.FC<{
     onClose: () => void;
     settings: Settings;
     onSettingsChange: (newSettings: Partial<Settings>) => void;
-}> = ({ isOpen, onClose, settings, onSettingsChange }) => {
+    apiStatus: 'checking' | 'valid' | 'invalid' | 'missing';
+}> = ({ isOpen, onClose, settings, onSettingsChange, apiStatus }) => {
     if (!isOpen) return null;
+    const isApiMode = settings.aiServiceMode === 'GEMINI_API' && apiStatus === 'valid';
     
     const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
         onSettingsChange({ [key]: value });
@@ -876,7 +866,7 @@ const SettingsModal: React.FC<{
                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-indigo-300 font-serif">Settings</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
                 <div>
                   <label className="block text-lg font-semibold text-indigo-300 mb-2">Art Style</label>
-                  <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500">
+                  <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} disabled={!isApiMode} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-700">
                     {Object.entries(artStyles).map(([name, prompt]) => (<option key={name} value={prompt}>{name}</option>))}
                   </select>
                 </div>
@@ -887,10 +877,11 @@ const SettingsModal: React.FC<{
                   </select>
                 </div>
                 <div className="space-y-3 pt-4 border-t border-slate-700">
-                    <label className="flex items-center justify-between cursor-pointer"><span className="text-slate-200">Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500" /></label>
-                    <label className="flex items-center justify-between cursor-pointer"><span className="text-slate-200">Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500" /></label>
+                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-slate-500' : 'text-slate-200'}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} disabled={!isApiMode} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
+                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-slate-500' : 'text-slate-200'}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} disabled={!isApiMode} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
                     <label className="flex items-center justify-between cursor-pointer"><span className="text-slate-200">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500" /></label>
                 </div>
+                <p className="text-xs text-slate-400 text-center">AI Model can only be changed when starting a new game.</p>
                 <button onClick={onClose} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">Close</button>
             </div>
         </div>
@@ -906,22 +897,11 @@ const WorldKnowledgeModal: React.FC<{
     const [results, setResults] = useState<WorldInfoEntry[]>([]);
     
     useEffect(() => {
-        if (!isOpen) {
-            setQuery('');
-            setResults([]);
-            return;
-        }
-        if (query.trim().length < 3) {
-            setResults([]);
-            return;
-        }
-        
+        if (!isOpen) { setQuery(''); setResults([]); return; }
+        if (query.trim().length < 3) { setResults([]); return; }
         const search = () => {
             const lowerCaseQuery = query.toLowerCase();
-            const found = worldInfo.filter(entry => 
-                entry.key.toLowerCase().includes(lowerCaseQuery) || 
-                entry.content.toLowerCase().includes(lowerCaseQuery)
-            );
+            const found = worldInfo.filter(entry => entry.key.toLowerCase().includes(lowerCaseQuery) || entry.content.toLowerCase().includes(lowerCaseQuery));
             setResults(found);
         };
         const timeoutId = setTimeout(search, 300);
@@ -934,11 +914,8 @@ const WorldKnowledgeModal: React.FC<{
         if (!query.trim()) return text;
         try {
             const regex = new RegExp(`(${query})`, 'gi');
-            return text.replace(regex, '<mark className="bg-yellow-400 text-black px-1 rounded">$1</mark>');
-        } catch (e: any) {
-            // Invalid regex from user input, just return original text
-            return text;
-        }
+            return text.replace(regex, '<mark class="bg-yellow-400 text-black px-1 rounded">$1</mark>');
+        } catch (e: any) { return text; }
     };
 
     return (
@@ -967,7 +944,8 @@ const WorldDataToolsModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     onLoadData: (data: WorldInfoEntry[]) => void;
-}> = ({ isOpen, onClose, onLoadData }) => {
+    isApiMode: boolean;
+}> = ({ isOpen, onClose, onLoadData, isApiMode }) => {
     const [files, setFiles] = useState<File[]>([]);
     const [enhanceWithAI, setEnhanceWithAI] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -976,99 +954,33 @@ const WorldDataToolsModal: React.FC<{
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        if (!isOpen) {
-            setFiles([]);
-            setEnhanceWithAI(false);
-            setIsProcessing(false);
-            setProcessedData(null);
-            setError(null);
-        }
+        if (!isOpen) { setFiles([]); setEnhanceWithAI(false); setIsProcessing(false); setProcessedData(null); setError(null); }
     }, [isOpen]);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setFiles(Array.from(e.target.files));
-        }
-    };
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) setFiles(Array.from(e.target.files)); };
 
     const processAndMergeFiles = async () => {
         setIsProcessing(true);
         setError(null);
         setProcessedData(null);
-
         try {
-            // Special case for single file with potential mixed JSON and text content
-            if (files.length === 1) {
-                const file = files[0];
-                const content = await file.text();
-                const trimmedContent = content.trim();
-
-                if (trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) {
-                    const lastBracket = trimmedContent.lastIndexOf(']');
-                    const lastBrace = trimmedContent.lastIndexOf('}');
-                    const splitIndex = Math.max(lastBracket, lastBrace);
-
-                    if (splitIndex > -1) {
-                        const potentialJson = trimmedContent.substring(0, splitIndex + 1);
-                        const trailingText = trimmedContent.substring(splitIndex + 1).trim();
-
-                        try {
-                            let jsonData = JSON.parse(potentialJson);
-
-                            // Normalize to array if it's a single valid object
-                            if (!Array.isArray(jsonData)) {
-                                if (typeof jsonData.key === 'string' && typeof jsonData.content === 'string') {
-                                    jsonData = [jsonData];
-                                } else {
-                                    throw new Error("Parsed JSON is not a valid structure.");
-                                }
-                            }
-                            
-                            if (!jsonData.every((item: any) => typeof item.key === 'string' && typeof item.content === 'string')) {
-                                throw new Error('Invalid item structure in JSON array.');
-                            }
-                            
-                            let finalEntries: WorldInfoEntry[] = jsonData;
-
-                            if (trailingText) {
-                                const structuredTrailing = await structureWorldDataWithAI(trailingText);
-                                if (enhanceWithAI) {
-                                    const enhancedTrailing = await Promise.all(
-                                        structuredTrailing.map(entry => enhanceWorldEntry(entry.content).then(content => ({ ...entry, content })))
-                                    );
-                                    finalEntries.push(...enhancedTrailing);
-                                } else {
-                                    finalEntries.push(...structuredTrailing);
-                                }
-                            }
-                            
-                            setProcessedData(finalEntries);
-                            return; // Successfully handled the special case, we're done.
-                        } catch (parseError: any) {
-                            console.warn("Could not parse as mixed content file, proceeding with normal logic.", parseError);
-                        }
-                    }
-                }
-            }
-
-            // General logic for multiple files or single non-mixed files
             const allEntries: WorldInfoEntry[] = [];
             for (const file of files) {
                 if (file.name.endsWith('.json')) {
                     const content = await file.text();
                     try {
                         const jsonData = JSON.parse(content);
-                        if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
-                            allEntries.push(...jsonData);
-                        } else {
-                            throw new Error('Invalid JSON structure.');
-                        }
-                    } catch (e: any) {
-                        throw new Error(`Failed to parse ${file.name}: ${(e as Error).message}`);
-                    }
+                        if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) allEntries.push(...jsonData);
+                        else throw new Error('Invalid JSON structure.');
+                    } catch (e: any) { throw new Error(`Failed to parse ${file.name}: ${(e as Error).message}`); }
                 } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
                     const content = await file.text();
+                    if (!isApiMode) {
+                        allEntries.push({ key: file.name.replace(/\.(txt|md)$/, ''), content, isUnstructured: true });
+                        continue;
+                    }
                     const structuredEntries = await structureWorldDataWithAI(content);
+                    if (!structuredEntries) throw new Error("Structuring failed.");
                     if (enhanceWithAI) {
                         const enhancedEntries = await Promise.all(
                             structuredEntries.map(async entry => ({ ...entry, content: await enhanceWorldEntry(entry.content) }))
@@ -1080,11 +992,7 @@ const WorldDataToolsModal: React.FC<{
                 }
             }
             setProcessedData(allEntries);
-        } catch (e: any) {
-            setError((e as Error).message);
-        } finally {
-            setIsProcessing(false);
-        }
+        } catch (e: any) { setError((e as Error).message); } finally { setIsProcessing(false); }
     };
 
     const handleDownload = () => {
@@ -1095,9 +1003,7 @@ const WorldDataToolsModal: React.FC<{
         const link = document.createElement('a');
         link.href = url;
         link.download = 'merged_world_data.json';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
         URL.revokeObjectURL(url);
     };
 
@@ -1115,8 +1021,8 @@ const WorldDataToolsModal: React.FC<{
                         </button>
                     </div>
                     {files.length > 0 && <div className="text-sm bg-slate-900/50 p-3 rounded-md"><ul>{files.map((f, i) => <li key={i} className="text-slate-300 truncate">{f.name}</li>)}</ul></div>}
-                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={enhanceWithAI} onChange={e => setEnhanceWithAI(e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-green-600 focus:ring-green-500" /><span>Enhance text-based lore with AI ✨ (slower)</span></label>
-                    
+                    <label className={`flex items-center gap-3 ${isApiMode ? 'cursor-pointer' : 'cursor-not-allowed'}`}><input type="checkbox" checked={enhanceWithAI} onChange={e => setEnhanceWithAI(e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-green-600 focus:ring-green-500 disabled:cursor-not-allowed" /><span className={!isApiMode ? 'text-slate-500' : ''}>Enhance text-based lore with AI ✨ (slower)</span></label>
+                    {!isApiMode && <p className="text-xs text-slate-500">AI Structuring & Enhancing requires Gemini API Mode.</p>}
                     {isProcessing && <ProgressBar text="Processing files... This may take a moment." />}
                     {error && <div className="p-3 bg-red-900/50 text-red-300 rounded-md">{error}</div>}
                     {processedData && <div className="p-3 bg-green-900/50 text-green-300 rounded-md">Successfully processed {files.length} files and generated {processedData.length} lore entries.</div>}
@@ -1140,62 +1046,29 @@ const GameLogModal: React.FC<{
 }> = ({ isOpen, onClose, storyLog }) => {
     if (!isOpen) return null;
     const scrollRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-      scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
-    }, [storyLog]);
+    useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [storyLog]);
     
     const parseContent = (text: string) => {
         const events: any[] = [];
         let cleanedText = text;
-
         const skillCheckRegex = /\[skill-check\](.*?)\[\/skill-check\]/gs;
         const combatRegex = /\[combat\](.*?)\[\/combat\]/gs;
-
-        const parseDetails = (match: string) => {
-            try {
-                return Object.fromEntries(match.trim().split(',').map(s => {
-                    const [key, ...value] = s.split(':');
-                    return [key.trim(), value.join(':').trim()];
-                }));
-            } catch {
-                return { raw: match };
-            }
-        };
-
-        cleanedText = cleanedText.replace(skillCheckRegex, (_, match) => {
-            events.push({ type: 'skill-check', details: parseDetails(match) });
-            return ''; // Remove from text
-        });
-        
-        cleanedText = cleanedText.replace(combatRegex, (_, match) => {
-            events.push({ type: 'combat', details: parseDetails(match) });
-            return ''; // Remove from text
-        });
-        
+        const parseDetails = (match: string) => { try { return Object.fromEntries(match.trim().split(',').map(s => { const [key, ...value] = s.split(':'); return [key.trim(), value.join(':').trim()]; })); } catch { return { raw: match }; } };
+        cleanedText = cleanedText.replace(skillCheckRegex, (_, match) => { events.push({ type: 'skill-check', details: parseDetails(match) }); return ''; });
+        cleanedText = cleanedText.replace(combatRegex, (_, match) => { events.push({ type: 'combat', details: parseDetails(match) }); return ''; });
         return { cleanedText: cleanedText.trim(), events };
     };
     
     const EventDisplay: React.FC<{ event: any }> = ({ event }) => {
         const { type, details } = event;
-
         if (type === 'skill-check') {
             const isSuccess = details.Result?.toLowerCase() === 'success';
-            return (
-                <div className={`my-2 p-2 rounded-md border text-xs ${isSuccess ? 'bg-green-900/50 border-green-700/50 text-green-300' : 'bg-red-900/50 border-red-700/50 text-red-300'}`}>
-                    <strong>SKILL CHECK: {details.Skill || 'N/A'}</strong> - Result: {details.Result || 'N/A'} (Target: {details.Target || '?'})
-                </div>
-            );
+            return <div className={`my-2 p-2 rounded-md border text-xs ${isSuccess ? 'bg-green-900/50 border-green-700/50 text-green-300' : 'bg-red-900/50 border-red-700/50 text-red-300'}`}><strong>SKILL CHECK: {details.Skill || 'N/A'}</strong> - Result: {details.Result || 'N/A'} (Target: {details.Target || '?'})</div>;
         }
-
         if (type === 'combat') {
             const isHit = details.Result?.toLowerCase() === 'hit';
-            return (
-                <div className={`my-2 p-2 rounded-md border text-xs ${isHit ? 'bg-yellow-900/50 border-yellow-700/50 text-yellow-300' : 'bg-slate-700/50 border-slate-600/50 text-slate-300'}`}>
-                    <strong>COMBAT: {details.Event || 'Action'}</strong> on {details.Target || 'Target'} - {isHit ? `HIT for ${details.Damage || '?'} dmg` : 'MISS'} (Roll: {details.Roll || '?'})
-                </div>
-            );
+            return <div className={`my-2 p-2 rounded-md border text-xs ${isHit ? 'bg-yellow-900/50 border-yellow-700/50 text-yellow-300' : 'bg-slate-700/50 border-slate-600/50 text-slate-300'}`}><strong>COMBAT: {details.Event || 'Action'}</strong> on {details.Target || 'Target'} - {isHit ? `HIT for ${details.Damage || '?'} dmg` : 'MISS'} (Roll: {details.Roll || '?'})</div>;
         }
-
         return null;
     };
 
@@ -1208,10 +1081,7 @@ const GameLogModal: React.FC<{
                 <div ref={scrollRef} className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2 space-y-4">
                     {storyLog.map((entry, index) => {
                         let isNewTurn = false;
-                        if (entry.type === 'player') {
-                            turnCounter++;
-                            isNewTurn = true;
-                        }
+                        if (entry.type === 'player') { turnCounter++; isNewTurn = true; }
                         const { cleanedText, events } = entry.type === 'ai' ? parseContent(entry.content) : { cleanedText: entry.content, events: [] };
                         return (
                             <div key={index}>
@@ -1282,45 +1152,35 @@ const initialState: AppState = {
         generateSceneImages: true,
         generateCharacterPortraits: true,
         dynamicBackgrounds: true,
+        aiServiceMode: process.env.API_KEY ? 'GEMINI_API' : 'LOCAL',
     },
     character: { portraits: [], description: '', class: '', alignment: '', backstory: '', skills: {} },
     inventory: [],
     isCharacterImageLoading: false,
     loadingMessage: 'Loading...',
     hasSavedGame: false,
-    apiStatus: API_KEY ? 'checking' : 'missing',
+    apiStatus: process.env.API_KEY ? 'checking' : 'missing',
 };
 
 function appReducer(state: AppState, action: Action): AppState {
     switch (action.type) {
-        case 'SET_PHASE':
-            return { ...state, gamePhase: action.payload, error: action.payload === GamePhase.ERROR ? state.error : null };
-        case 'SET_LOADING_MESSAGE':
-            return { ...state, loadingMessage: action.payload };
+        case 'SET_PHASE': return { ...state, gamePhase: action.payload, error: action.payload === GamePhase.ERROR ? state.error : null };
+        case 'SET_LOADING_MESSAGE': return { ...state, loadingMessage: action.payload };
         case 'START_NEW_GAME':
             clearGameState();
-            return {
-                ...initialState,
-                ...action.payload,
-                apiStatus: state.apiStatus,
-                storyLog: [],
-                inventory: [],
-                hasSavedGame: false,
-                gamePhase: GamePhase.PLAYING,
-            };
+            return { ...initialState, ...action.payload, apiStatus: state.apiStatus, storyLog: [], inventory: [], hasSavedGame: false, gamePhase: GamePhase.PLAYING, };
         case 'LOAD_GAME':
             const { storyLog, worldInfo, worldSummary, settings, character, inventory } = action.payload;
             return { ...state, storyLog, worldInfo, worldSummary, settings, character, inventory, gamePhase: GamePhase.PLAYING };
         case 'PLAYER_ACTION':
             const playerEntry: StoryEntry = { type: 'player', content: action.payload };
-            const aiEntry: StoryEntry = { type: 'ai', content: '', isStreaming: true, choices: [] };
+            const aiEntry: StoryEntry = { type: 'ai', content: '', isStreaming: state.settings.aiServiceMode === 'GEMINI_API', choices: [] };
             return { ...state, storyLog: [...state.storyLog, playerEntry, aiEntry], gamePhase: GamePhase.LOADING, error: null };
         case 'STREAM_CHUNK':
             const lastIndex = state.storyLog.length - 1;
             if (lastIndex >= 0 && state.storyLog[lastIndex].type === 'ai' && state.storyLog[lastIndex].isStreaming) {
                 const newStoryLog = [...state.storyLog];
-                const currentContent = newStoryLog[lastIndex].content;
-                newStoryLog[lastIndex] = { ...newStoryLog[lastIndex], content: currentContent + action.payload };
+                newStoryLog[lastIndex] = { ...newStoryLog[lastIndex], content: newStoryLog[lastIndex].content + action.payload };
                 return { ...state, storyLog: newStoryLog };
             }
             return state;
@@ -1331,31 +1191,19 @@ function appReducer(state: AppState, action: Action): AppState {
             return {
                 ...state,
                 storyLog: finalLog,
-                character: needsCharacterUpdate ? {
-                    ...state.character,
-                    ...action.payload.character,
-                    skills: { ...state.character.skills, ...action.payload.skillUpdates }
-                } : state.character,
+                character: needsCharacterUpdate ? { ...state.character, ...action.payload.character, skills: { ...state.character.skills, ...action.payload.skillUpdates } } : state.character,
                 inventory: action.payload.inventory || state.inventory,
                 gamePhase: GamePhase.PLAYING,
             };
         }
-        case 'UPDATE_SETTINGS':
-            return { ...state, settings: { ...state.settings, ...action.payload } };
-        case 'UPDATE_CHARACTER':
-            return { ...state, character: { ...state.character, ...action.payload } };
-        case 'UPDATE_CHARACTER_IMAGE_STATUS':
-            return { ...state, isCharacterImageLoading: action.payload };
-         case 'UPDATE_SCENE_IMAGE':
-            return { ...state, storyLog: state.storyLog.map((e, i) => i === action.payload.index ? {...e, imageUrl: action.payload.imageUrl, isImageLoading: action.payload.isLoading} : e) };
-        case 'SET_ERROR':
-            return { ...state, error: action.payload, gamePhase: GamePhase.ERROR };
-        case 'SET_API_STATUS':
-            return { ...state, apiStatus: action.payload };
-        case 'SET_HAS_SAVED_GAME':
-            return { ...state, hasSavedGame: action.payload };
-        default:
-            return state;
+        case 'UPDATE_SETTINGS': return { ...state, settings: { ...state.settings, ...action.payload } };
+        case 'UPDATE_CHARACTER': return { ...state, character: { ...state.character, ...action.payload } };
+        case 'UPDATE_CHARACTER_IMAGE_STATUS': return { ...state, isCharacterImageLoading: action.payload };
+        case 'UPDATE_SCENE_IMAGE': return { ...state, storyLog: state.storyLog.map((e, i) => i === action.payload.index ? {...e, imageUrl: action.payload.imageUrl, isImageLoading: action.payload.isLoading} : e) };
+        case 'SET_ERROR': return { ...state, error: action.payload, gamePhase: GamePhase.ERROR };
+        case 'SET_API_STATUS': return { ...state, apiStatus: action.payload };
+        case 'SET_HAS_SAVED_GAME': return { ...state, hasSavedGame: action.payload };
+        default: return state;
     }
 }
 
@@ -1366,7 +1214,10 @@ function appReducer(state: AppState, action: Action): AppState {
 const ChoiceAndInputPanel: React.FC<{
     isAITurn: boolean;
     choices: string[];
-    onPlayerAction: (action: string) => void;
+    onActionSubmit: (action: string) => void;
+    playerInput: string;
+    setPlayerInput: (value: string) => void;
+    inputRef: React.RefObject<HTMLInputElement>;
     canUndo: boolean;
     onUndo: () => void;
     onOpenSettings: () => void;
@@ -1374,26 +1225,24 @@ const ChoiceAndInputPanel: React.FC<{
     onNewGame: () => void;
     onSaveGame: () => void;
     isSaving: boolean;
-}> = ({ isAITurn, choices, onPlayerAction, canUndo, onUndo, onOpenSettings, onOpenLog, onNewGame, onSaveGame, isSaving }) => {
-    const [playerInput, setPlayerInput] = useState('');
+}> = ({ isAITurn, choices, onActionSubmit, playerInput, setPlayerInput, inputRef, canUndo, onUndo, onOpenSettings, onOpenLog, onNewGame, onSaveGame, isSaving }) => {
 
     useEffect(() => {
         const handleKeyPress = (e: KeyboardEvent) => {
             if (isAITurn) return;
             const keyNum = parseInt(e.key);
             if (keyNum >= 1 && keyNum <= choices.length) {
-                onPlayerAction(choices[keyNum - 1]);
+                onActionSubmit(choices[keyNum - 1]);
             }
         };
         window.addEventListener('keydown', handleKeyPress);
         return () => window.removeEventListener('keydown', handleKeyPress);
-    }, [choices, isAITurn, onPlayerAction]);
+    }, [choices, isAITurn, onActionSubmit]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (playerInput.trim()) {
-            onPlayerAction(playerInput);
-            setPlayerInput('');
+            onActionSubmit(playerInput);
         }
     };
 
@@ -1401,12 +1250,12 @@ const ChoiceAndInputPanel: React.FC<{
         <>
             {choices.length > 0 &&
                 <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {choices.map((choice, i) => <button key={i} onClick={() => onPlayerAction(choice)} disabled={isAITurn} className="text-left bg-slate-700/80 p-3 rounded-lg hover:bg-indigo-600 transition-all disabled:bg-slate-700 disabled:cursor-not-allowed"><span className="text-xs font-mono bg-slate-800 rounded px-1.5 py-0.5 mr-2">{i+1}</span>{choice}</button>)}
+                    {choices.map((choice, i) => <button key={i} onClick={() => onActionSubmit(choice)} disabled={isAITurn} className="text-left bg-slate-700/80 p-3 rounded-lg hover:bg-indigo-600 transition-all disabled:bg-slate-700 disabled:cursor-not-allowed"><span className="text-xs font-mono bg-slate-800 rounded px-1.5 py-0.5 mr-2">{i+1}</span>{choice}</button>)}
                 </div>
             }
             <div className="flex items-center gap-2">
                 <form onSubmit={handleSubmit} className="flex-grow flex items-center gap-2">
-                    <input type="text" value={playerInput} onChange={e => setPlayerInput(e.target.value)} placeholder={isAITurn ? "Game Master is thinking..." : "What do you do?"} disabled={isAITurn} className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-3 disabled:bg-slate-700" autoFocus />
+                    <input ref={inputRef} type="text" value={playerInput} onChange={e => setPlayerInput(e.target.value)} placeholder={isAITurn ? "Game Master is thinking..." : "What do you do?"} disabled={isAITurn} className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-3 disabled:bg-slate-700" autoFocus />
                     <button type="submit" disabled={isAITurn || !playerInput.trim()} className="bg-indigo-600 font-bold py-3 px-5 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500">Send</button>
                 </form>
                 <button onClick={onUndo} disabled={!canUndo || isAITurn} title="Undo" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed">
@@ -1445,10 +1294,25 @@ const GameUI: React.FC<{
     isSaving: boolean;
 }> = ({ state, previousGameState, onPlayerAction, onRegenerateResponse, onUpdateCharacterImage, onUpdateSceneImage, onUndo, onOpenSettings, onOpenLog, onNewGame, onOpenWorldKnowledge, onSaveGame, isSaving }) => {
     const logEndRef = useRef<HTMLDivElement>(null);
+    const [playerInput, setPlayerInput] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
+
     useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [state.storyLog]);
 
     const choices = state.storyLog[state.storyLog.length - 1]?.choices || [];
     const isAITurn = state.gamePhase === GamePhase.LOADING;
+
+    const handleActionSubmit = (action: string) => {
+        if (action.trim()) {
+            onPlayerAction(action);
+            setPlayerInput('');
+        }
+    };
+    
+    const handleItemAction = (action: string) => {
+        setPlayerInput(action);
+        inputRef.current?.focus();
+    };
 
     return (
         <main className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 h-[85vh]">
@@ -1460,6 +1324,7 @@ const GameUI: React.FC<{
                 onOpenWorldKnowledge={onOpenWorldKnowledge}
                 apiStatus={state.apiStatus}
                 settings={state.settings}
+                onItemAction={handleItemAction}
             />
             <div className="flex-grow h-full flex flex-col bg-slate-800 p-4 sm:p-6 rounded-xl shadow-2xl border border-slate-700">
                 <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar">
@@ -1485,7 +1350,10 @@ const GameUI: React.FC<{
                     <ChoiceAndInputPanel
                         isAITurn={isAITurn}
                         choices={choices}
-                        onPlayerAction={onPlayerAction}
+                        onActionSubmit={handleActionSubmit}
+                        playerInput={playerInput}
+                        setPlayerInput={setPlayerInput}
+                        inputRef={inputRef}
                         canUndo={!!previousGameState}
                         onUndo={onUndo}
                         onOpenSettings={onOpenSettings}
@@ -1506,7 +1374,6 @@ const GameUI: React.FC<{
 
 const App: React.FC = () => {
     const [state, dispatch] = useReducer(appReducer, initialState);
-    const [chatSession, setChatSession] = useState<Chat | null>(null);
     const [previousGameState, setPreviousGameState] = useState<SavedGameState | null>(null);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isWorldModalOpen, setIsWorldModalOpen] = useState(false);
@@ -1514,61 +1381,32 @@ const App: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [notification, setNotification] = useState<string | null>(null);
     
-    const activeChatSettings = useRef<Settings>(state.settings);
     const savedTurnIndex = useRef<number | null>(null);
+    const isApiMode = useMemo(() => state.settings.aiServiceMode === 'GEMINI_API' && state.apiStatus === 'valid', [state.settings.aiServiceMode, state.apiStatus]);
 
-    // Initial check for saved game and API key
     useEffect(() => {
         if (loadGameState()) {
             dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
         }
         if (state.apiStatus === 'checking') {
-            verifyApiKey().then(isValid => dispatch({ type: 'SET_API_STATUS', payload: isValid ? 'valid' : 'invalid' }));
+            aiService.initializeGemini(process.env.API_KEY!).then(isValid => {
+                dispatch({ type: 'SET_API_STATUS', payload: isValid ? 'valid' : 'invalid' });
+                if (!isValid) {
+                    dispatch({ type: 'UPDATE_SETTINGS', payload: { aiServiceMode: 'LOCAL' } });
+                }
+            });
         }
     }, []);
 
-    // Effect to re-initialize chat when critical settings change mid-game.
-    useEffect(() => {
-        if (state.gamePhase !== GamePhase.PLAYING || !chatSession) return;
-
-        const needsReinitialization =
-            state.settings.gmMode !== activeChatSettings.current.gmMode ||
-            state.settings.artStyle !== activeChatSettings.current.artStyle;
-
-        if (needsReinitialization) {
-            const reinitialize = async () => {
-                dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Updating Game Master settings...' });
-                dispatch({ type: 'SET_PHASE', payload: GamePhase.LOADING });
-                try {
-                    const history = await chatSession.getHistory();
-                    const newChat = initializeChat(state.worldSummary, state.character, state.settings, history);
-                    if (!newChat) throw new Error("Failed to re-initialize chat session.");
-                    setChatSession(newChat);
-                    activeChatSettings.current = { ...state.settings };
-                } catch (e: any) {
-                    console.error(e);
-                    dispatch({ type: 'SET_ERROR', payload: "Failed to update settings. Please try again." });
-                    dispatch({ type: 'UPDATE_SETTINGS', payload: activeChatSettings.current });
-                } finally {
-                    dispatch({ type: 'SET_PHASE', payload: GamePhase.PLAYING });
-                }
-            };
-            reinitialize();
-        }
-    }, [state.settings, state.gamePhase, chatSession, state.worldSummary, state.character]);
-
     const handleUpdateCharacterImage = useCallback(async (description: string) => {
+        if (!isApiMode || !state.settings.generateCharacterPortraits) return;
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: true });
-        
-        let newPortrait: CharacterPortrait = { prompt: description };
-        if (state.settings.generateCharacterPortraits) {
-            const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
-            newPortrait.url = await generateImage(fullPrompt, state.settings.artStyle, '1:1');
-        }
-        
+        const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
+        const url = await generateImage(fullPrompt, state.settings.artStyle, '1:1');
+        const newPortrait: CharacterPortrait = { prompt: description, url };
         dispatch({ type: 'UPDATE_CHARACTER', payload: { description, portraits: [...state.character.portraits, newPortrait] } });
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: false });
-    }, [state.settings.generateCharacterPortraits, state.settings.artStyle, state.character.portraits]);
+    }, [isApiMode, state.settings.artStyle, state.character.portraits, state.settings.generateCharacterPortraits]);
 
     const processFinalResponse = useCallback(async (responseText: string) => {
         const tagRegex = /\[(img-prompt|char-img-prompt|update-backstory|background-prompt)\](.*?)\[\/\1\]/gs;
@@ -1595,66 +1433,58 @@ const App: React.FC = () => {
             if (tag === 'add-item') {
                 const [name, description] = value.split('|').map(s => s.trim());
                 if (name && description) result.addedItems.push({ name, description });
-            } else if (tag === 'remove-item') {
-                result.removedItems.push(value.trim());
-            }
+            } else if (tag === 'remove-item') { result.removedItems.push(value.trim()); }
         });
         
         [...responseText.matchAll(skillRegex)].forEach(match => {
             const [_, name, value] = match;
             const numValue = parseInt(value.trim(), 10);
-            if(name && !isNaN(numValue)) {
-                result.skillUpdates[name.trim()] = numValue;
-            }
+            if(name && !isNaN(numValue)) result.skillUpdates[name.trim()] = numValue;
         });
         
         content = content.replace(itemRegex, '').replace(skillRegex, '').trim();
         result.content = content;
 
-        if (result.imgPrompt && state.settings.generateSceneImages) {
+        if (result.imgPrompt && isApiMode && state.settings.generateSceneImages) {
             result.imageUrl = await generateImage(result.imgPrompt, state.settings.artStyle, '16:9');
         }
         
         return result;
-    }, [state.settings.generateSceneImages, state.settings.artStyle]);
+    }, [isApiMode, state.settings.generateSceneImages, state.settings.artStyle]);
     
-    const handlePlayerAction = useCallback(async (action: string, session?: Chat) => {
-        const chatToUse = session || chatSession;
-
-        if (!chatToUse || !action.trim() || state.gamePhase === GamePhase.LOADING) return;
+    const handlePlayerAction = useCallback(async (action: string) => {
+        if (!action.trim() || state.gamePhase === GamePhase.LOADING) return;
 
         if (state.storyLog.length > 0) {
-            try {
-                const history = await chatToUse.getHistory();
-                setPreviousGameState({ ...state, chatHistory: history });
-            } catch (error: any) { console.error("Error capturing undo state:", error); }
+            setPreviousGameState({ ...state, chatHistory: aiService.getHistory() });
         }
         
-        dispatch({ type: 'PLAYER_ACTION', payload: action });
-        
-        try {
-            const relevantLore = retrieveRelevantSnippets(action, state.worldInfo);
-            const message = relevantLore ? `${action}\n\n[RELEVANT WORLD LORE]\n${relevantLore}\n[/RELEVANT WORLD LORE]` : action;
+        const currentInventory = state.inventory.map(i => i.name).join(', ') || 'Empty';
+        const currentSkills = Object.entries(state.character.skills).map(([name, value]) => `${name}: ${value}`).join(', ');
+        const context = `\n---\n[CURRENT CHARACTER STATE]\nInventory: ${currentInventory}\nSkills: ${currentSkills}\n---`;
+        const relevantLore = retrieveRelevantSnippets(action, state.worldInfo);
+        const loreSegment = relevantLore ? `\n\n[RELEVANT WORLD LORE FOR CONTEXT]\n${relevantLore}\n[/RELEVANT WORLD LORE FOR CONTEXT]` : '';
+        const message = `${context}\n\nPlayer action: "${action}"${loreSegment}`;
 
-            const stream = await withRetry(() => chatToUse.sendMessageStream({ message }));
+        dispatch({ type: 'PLAYER_ACTION', payload: action });
+
+        try {
             let fullResponseText = '';
-            let streamBuffer = '';
-            
-            for await (const chunk of stream) {
-                fullResponseText += chunk.text;
-                streamBuffer += chunk.text;
-                
-                let lastSpace = streamBuffer.lastIndexOf(' ');
-                if (lastSpace !== -1) {
-                    const dispatchableText = streamBuffer.substring(0, lastSpace + 1);
-                    dispatch({ type: 'STREAM_CHUNK', payload: dispatchableText });
-                    streamBuffer = streamBuffer.substring(lastSpace + 1);
+            if (state.settings.aiServiceMode === 'GEMINI_API') {
+                fullResponseText = await aiService.generateTextStream(message, (chunk) => {
+                    dispatch({ type: 'STREAM_CHUNK', payload: chunk });
+                });
+            } else { // LOCAL MODE
+                const systemInstruction = buildSystemInstruction(state.worldSummary, state.character, state.settings);
+                const progressCallback = (progress: any) => {
+                    let msg = progress.status;
+                    if(progress.file) msg += `: ${progress.file}`;
+                    if(progress.progress) msg += ` (${Math.round(progress.progress)}%)`;
+                    dispatch({ type: 'SET_LOADING_MESSAGE', payload: msg });
                 }
+                fullResponseText = await aiService.generateText(systemInstruction, message, progressCallback);
             }
-            if(streamBuffer) {
-                dispatch({ type: 'STREAM_CHUNK', payload: streamBuffer });
-            }
-            
+
             const processed = await processFinalResponse(fullResponseText);
             
             let characterUpdates: Partial<Character> = {};
@@ -1671,143 +1501,107 @@ const App: React.FC = () => {
                 newInventory = [...state.inventory.filter(item => !processed.removedItems.includes(item.name)), ...processed.addedItems];
             }
             
-            const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || '', imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, backgroundPrompt: processed.backgroundPrompt, isImageLoading: false, isStreaming: false };
+            const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || fullResponseText, imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, backgroundPrompt: processed.backgroundPrompt, isImageLoading: false, isStreaming: false };
             dispatch({ type: 'FINISH_TURN', payload: { entry: finalAiEntry, character: characterUpdates, inventory: newInventory, skillUpdates: processed.skillUpdates }});
 
         } catch (e: any) {
             console.error(e);
             dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from the Game Master. Please try again.' });
         }
-    }, [chatSession, state, processFinalResponse, handleUpdateCharacterImage]);
+    }, [state, processFinalResponse, handleUpdateCharacterImage]);
 
     const handleStartGame = useCallback(async (worldInfo: WorldInfoEntry[], worldSummary: string | null, characterInput: CharacterInput, initialPrompt: string, settings: Settings) => {
         dispatch({ type: 'SET_PHASE', payload: GamePhase.LOADING });
         dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Crafting your character...' });
         try {
-            const summary = worldSummary || formatWorldInfoToString(worldInfo);
             savedTurnIndex.current = null;
-    
+            const summary = worldSummary || formatWorldInfoToString(worldInfo);
             const initialParsedSkills: Record<string, number> = {};
             if (characterInput.skills) {
                 characterInput.skills.split(',').forEach(pair => {
-                    const parts = pair.split(':');
-                    const key = parts[0]?.trim();
-                    const valueStr = parts[1]?.trim();
-                    if (key && valueStr) {
-                        const valueNum = parseInt(valueStr, 10);
-                        if (!isNaN(valueNum)) {
-                            initialParsedSkills[key] = valueNum;
-                        }
-                    }
+                    const [key, valueStr] = pair.split(':');
+                    if (key && valueStr) { const valueNum = parseInt(valueStr.trim(), 10); if (!isNaN(valueNum)) initialParsedSkills[key.trim()] = valueNum; }
                 });
             }
     
             const initialCharacter: Character = {
-                description: characterInput.description,
-                class: characterInput.characterClass || 'Adventurer',
-                alignment: characterInput.alignment || 'True Neutral',
-                backstory: characterInput.backstory || 'A mysterious past awaits...',
-                portraits: [],
-                skills: initialParsedSkills,
+                description: characterInput.description, class: characterInput.characterClass || 'Adventurer', alignment: characterInput.alignment || 'True Neutral', backstory: characterInput.backstory || 'A mysterious past awaits...', portraits: [], skills: initialParsedSkills,
             };
     
             dispatch({ type: 'START_NEW_GAME', payload: { worldInfo, worldSummary: summary, character: initialCharacter, settings } });
-            activeChatSettings.current = settings;
     
-            const chat = initializeChat(summary, initialCharacter, settings);
-            if (!chat) throw new Error("Failed to initialize chat session.");
-            setChatSession(chat);
+            const systemInstruction = buildSystemInstruction(summary, initialCharacter, settings);
+            aiService.startChat(settings.aiServiceMode, systemInstruction, []);
+            
+            handlePlayerAction(initialPrompt);
     
-            handlePlayerAction(initialPrompt, chat);
-    
-            (async () => {
-                await new Promise(resolve => setTimeout(resolve, 100));
-    
-                const [generatedDetails] = await Promise.all([
-                    generateCharacterDetails(characterInput),
-                    handleUpdateCharacterImage(initialCharacter.description) 
-                ]);
-    
-                const finalCharacterInput = { ...characterInput, ...generatedDetails };
-    
-                const enhancedParsedSkills: Record<string, number> = {};
-                if (finalCharacterInput.skills) {
-                    finalCharacterInput.skills.split(',').forEach(pair => {
-                        const parts = pair.split(':');
-                        const key = parts[0]?.trim();
-                        const valueStr = parts[1]?.trim();
-                        if (key && valueStr) {
-                            const valueNum = parseInt(valueStr, 10);
-                            if (!isNaN(valueNum)) {
-                                enhancedParsedSkills[key] = valueNum;
-                            }
-                        }
-                    });
-                }
-    
-                const characterUpdates: Partial<Character> = {
-                    class: finalCharacterInput.characterClass || initialCharacter.class,
-                    alignment: finalCharacterInput.alignment || initialCharacter.alignment,
-                    backstory: finalCharacterInput.backstory || initialCharacter.backstory,
-                    skills: Object.keys(enhancedParsedSkills).length > 0 ? { ...initialCharacter.skills, ...enhancedParsedSkills } : initialCharacter.skills,
-                };
-    
-                dispatch({ type: 'UPDATE_CHARACTER', payload: characterUpdates });
+            // API-only enhancements
+            if(settings.aiServiceMode === 'GEMINI_API' && state.apiStatus === 'valid') {
+                (async () => {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+        
+                    const [generatedDetails] = await Promise.all([
+                        generateCharacterDetails(characterInput),
+                        handleUpdateCharacterImage(initialCharacter.description) 
+                    ]);
+        
+                    const finalCharacterInput = { ...characterInput, ...generatedDetails };
+                    const enhancedParsedSkills: Record<string, number> = {};
+                    if (finalCharacterInput.skills) {
+                        finalCharacterInput.skills.split(',').forEach(pair => {
+                            const [key, valueStr] = pair.split(':');
+                            if (key && valueStr) { const valueNum = parseInt(valueStr.trim(), 10); if (!isNaN(valueNum)) enhancedParsedSkills[key.trim()] = valueNum; }
+                        });
+                    }
+        
+                    const characterUpdates: Partial<Character> = {
+                        class: finalCharacterInput.characterClass || initialCharacter.class,
+                        alignment: finalCharacterInput.alignment || initialCharacter.alignment,
+                        backstory: finalCharacterInput.backstory || initialCharacter.backstory,
+                        skills: Object.keys(enhancedParsedSkills).length > 0 ? { ...initialCharacter.skills, ...enhancedParsedSkills } : initialCharacter.skills,
+                    };
+                    dispatch({ type: 'UPDATE_CHARACTER', payload: characterUpdates });
 
-                // Generate and apply flavor AFTER the base character updates have been dispatched.
-                const characterForFlavor = { ...initialCharacter, ...characterUpdates };
-                const flavor = await generateCharacterFlavor(characterForFlavor);
-                const flavorUpdates: Partial<Character> = {
-                    class: flavor.class || characterForFlavor.class, // Fallback to existing class
-                };
-                if (flavor.quirk) {
-                    flavorUpdates.backstory = `${characterForFlavor.backstory}\n\n**Quirk:** ${flavor.quirk}`;
-                }
-
-                if (flavor.class !== characterForFlavor.class || flavor.quirk) {
-                    dispatch({ type: 'UPDATE_CHARACTER', payload: flavorUpdates });
-                }
-            })();
+                    const characterForFlavor = { ...initialCharacter, ...characterUpdates };
+                    const flavor = await generateCharacterFlavor(characterForFlavor);
+                    const flavorUpdates: Partial<Character> = { class: flavor.class || characterForFlavor.class };
+                    if (flavor.quirk) flavorUpdates.backstory = `${characterForFlavor.backstory}\n\n**Quirk:** ${flavor.quirk}`;
+                    if (flavor.class !== characterForFlavor.class || flavor.quirk) dispatch({ type: 'UPDATE_CHARACTER', payload: flavorUpdates });
+                })();
+            }
     
         } catch (e: any) {
             console.error(e);
-            dispatch({ type: 'SET_ERROR', payload: 'Failed to start the game. Please check your API key and try again.' });
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to start the game. Please check your settings and try again.' });
         }
-    }, [handlePlayerAction, handleUpdateCharacterImage]);
+    }, [handlePlayerAction, handleUpdateCharacterImage, state.apiStatus]);
     
     const loadGameFromState = useCallback((savedState: SavedGameState | null) => {
         if (!savedState) return;
         savedTurnIndex.current = null;
-        const chat = initializeChat(savedState.worldSummary, savedState.character, savedState.settings, savedState.chatHistory);
-        if (!chat) {
-            dispatch({ type: 'SET_ERROR', payload: "Failed to re-initialize chat from save." });
-            return;
+        if (savedState.settings.aiServiceMode === 'GEMINI_API' && state.apiStatus !== 'valid') {
+            alert("This save requires a valid Gemini API key which is missing or invalid. Switching to local mode.");
+            savedState.settings.aiServiceMode = 'LOCAL';
         }
-        setChatSession(chat);
+        const systemInstruction = buildSystemInstruction(savedState.worldSummary, savedState.character, savedState.settings);
+        aiService.startChat(savedState.settings.aiServiceMode, systemInstruction, savedState.chatHistory);
         dispatch({ type: 'LOAD_GAME', payload: savedState });
-        activeChatSettings.current = savedState.settings;
-    }, []);
+    }, [state.apiStatus]);
 
     const handleSaveGame = useCallback(async () => {
-        if (!chatSession || state.storyLog.length === 0 || isSaving) return;
-        
+        if (state.storyLog.length === 0 || isSaving) return;
         setIsSaving(true);
         try {
-            const history = await chatSession.getHistory();
-            saveGameState({ ...state, chatHistory: history });
+            saveGameState({ ...state, chatHistory: aiService.getHistory() });
             dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
             setNotification("Game progress saved!");
         } catch (error: any) {
             console.error("Failed to save game state:", error);
         } finally {
-            setTimeout(() => {
-                setIsSaving(false);
-                setNotification(null);
-            }, 1500);
+            setTimeout(() => { setIsSaving(false); setNotification(null); }, 1500);
         }
-    }, [chatSession, isSaving, state]);
+    }, [isSaving, state]);
     
-    // Auto-save logic
     useEffect(() => {
         const lastEntryIndex = state.storyLog.length - 1;
         const lastEntry = state.storyLog[lastEntryIndex];
@@ -1831,10 +1625,11 @@ const App: React.FC = () => {
     }, [state.storyLog]);
 
     const handleUpdateSceneImage = useCallback(async (index: number, prompt: string) => {
+        if (!isApiMode) return;
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, isLoading: true }});
         const newImageUrl = await generateImage(prompt, state.settings.artStyle, '16:9');
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, imageUrl: newImageUrl, isLoading: false }});
-    }, [state.settings.artStyle]);
+    }, [isApiMode, state.settings.artStyle]);
     
     const handleNewGame = useCallback(() => {
         if (window.confirm('Are you sure you want to start a new game? All current progress will be lost.')) {
@@ -1846,42 +1641,16 @@ const App: React.FC = () => {
     const renderContent = () => {
         switch (state.gamePhase) {
             case GamePhase.SETUP:
-                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={state.hasSavedGame} />;
+                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={state.hasSavedGame} apiStatus={state.apiStatus} />;
             case GamePhase.LOADING:
                  if (state.storyLog.length > 0) {
                      return <GameUI 
-                        state={state}
-                        previousGameState={previousGameState}
-                        onPlayerAction={handlePlayerAction}
-                        onRegenerateResponse={handleRegenerateResponse}
-                        onUpdateCharacterImage={handleUpdateCharacterImage}
-                        onUpdateSceneImage={handleUpdateSceneImage}
-                        onUndo={() => previousGameState && loadGameFromState(previousGameState)}
-                        onOpenSettings={() => setIsSettingsModalOpen(true)}
-                        onOpenLog={() => setIsLogModalOpen(true)}
-                        onNewGame={handleNewGame}
-                        onOpenWorldKnowledge={() => setIsWorldModalOpen(true)}
-                        onSaveGame={handleSaveGame}
-                        isSaving={isSaving}
-                     />;
+                        state={state} previousGameState={previousGameState} onPlayerAction={handlePlayerAction} onRegenerateResponse={handleRegenerateResponse} onUpdateCharacterImage={handleUpdateCharacterImage} onUpdateSceneImage={handleUpdateSceneImage} onUndo={() => previousGameState && loadGameFromState(previousGameState)} onOpenSettings={() => setIsSettingsModalOpen(true)} onOpenLog={() => setIsLogModalOpen(true)} onNewGame={handleNewGame} onOpenWorldKnowledge={() => setIsWorldModalOpen(true)} onSaveGame={handleSaveGame} isSaving={isSaving} />;
                  }
-                 return <div className="flex items-center justify-center h-[85vh]"><div className="flex items-center space-x-2"><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce"></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.15s'}}></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.3s'}}></div><span className="text-slate-400 font-serif">{state.loadingMessage}</span></div></div>;
+                 return <div className="flex items-center justify-center h-[85vh]"><div className="flex flex-col items-center space-y-2"><div className="flex items-center space-x-2"><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce"></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.15s'}}></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.3s'}}></div></div><span className="text-slate-400 font-serif text-center">{state.loadingMessage}</span></div></div>;
             case GamePhase.PLAYING:
                  return <GameUI 
-                    state={state}
-                    previousGameState={previousGameState}
-                    onPlayerAction={handlePlayerAction}
-                    onRegenerateResponse={handleRegenerateResponse}
-                    onUpdateCharacterImage={handleUpdateCharacterImage}
-                    onUpdateSceneImage={handleUpdateSceneImage}
-                    onUndo={() => previousGameState && loadGameFromState(previousGameState)}
-                    onOpenSettings={() => setIsSettingsModalOpen(true)}
-                    onOpenLog={() => setIsLogModalOpen(true)}
-                    onNewGame={handleNewGame}
-                    onOpenWorldKnowledge={() => setIsWorldModalOpen(true)}
-                    onSaveGame={handleSaveGame}
-                    isSaving={isSaving}
-                 />;
+                    state={state} previousGameState={previousGameState} onPlayerAction={handlePlayerAction} onRegenerateResponse={handleRegenerateResponse} onUpdateCharacterImage={handleUpdateCharacterImage} onUpdateSceneImage={handleUpdateSceneImage} onUndo={() => previousGameState && loadGameFromState(previousGameState)} onOpenSettings={() => setIsSettingsModalOpen(true)} onOpenLog={() => setIsLogModalOpen(true)} onNewGame={handleNewGame} onOpenWorldKnowledge={() => setIsWorldModalOpen(true)} onSaveGame={handleSaveGame} isSaving={isSaving} />;
             case GamePhase.ERROR:
                  return <div className="text-red-400 p-4 bg-red-900/50 rounded-md"><h2>An Error Occurred</h2><p>{state.error}</p><button onClick={() => { clearGameState(); window.location.reload(); }} className="mt-4 bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">Start Over</button></div>;
         }
@@ -1900,7 +1669,7 @@ const App: React.FC = () => {
             <header className="text-center w-full max-w-7xl mx-auto mb-6"><h1 className="text-4xl sm:text-5xl font-bold text-indigo-400 font-serif">CYOA Game Master</h1></header>
             
             {renderContent()}
-            <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={state.settings} onSettingsChange={(newSettings) => dispatch({ type: 'UPDATE_SETTINGS', payload: newSettings })} />
+            <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={state.settings} onSettingsChange={(newSettings) => dispatch({ type: 'UPDATE_SETTINGS', payload: newSettings })} apiStatus={state.apiStatus} />
             <WorldKnowledgeModal isOpen={isWorldModalOpen} onClose={() => setIsWorldModalOpen(false)} worldInfo={state.worldInfo} />
             <GameLogModal isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)} storyLog={state.storyLog} />
         </div>
