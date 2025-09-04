@@ -1,7 +1,7 @@
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef, useReducer } from 'react';
 import ReactDOM from 'react-dom/client';
-import { GoogleGenAI, Chat, Content, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Chat, Content, GenerateContentResponse, Type } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -22,6 +22,11 @@ enum GameMasterMode {
   ACTION = 'Action Focus',
 }
 
+interface WorldInfoEntry {
+  key: string;
+  content: string;
+}
+
 interface StoryEntry {
   type: 'ai' | 'player';
   content: string;
@@ -38,6 +43,7 @@ interface CharacterInput {
   characterClass?: string;
   alignment?: string;
   backstory?: string;
+  skills?: string;
 }
 
 interface Character {
@@ -46,6 +52,7 @@ interface Character {
   class: string;
   alignment: string;
   backstory: string;
+  skills: Record<string, number>;
 }
 
 interface CharacterPortrait {
@@ -60,17 +67,12 @@ interface InventoryItem {
 
 interface SavedGameState {
   storyLog: StoryEntry[];
-  fullWorldData: string;
+  worldInfo: WorldInfoEntry[];
   worldSummary: string;
   chatHistory: Content[];
   character: Character;
   inventory: InventoryItem[];
   settings: Settings;
-}
-
-interface GalleryImage {
-  src: string;
-  alt: string;
 }
 
 interface Settings {
@@ -82,10 +84,28 @@ interface Settings {
 }
 
 // ===================================================================================
-//  LOCAL STORAGE SERVICE
+//  CONSTANTS & CONFIG
 // ===================================================================================
 
-const SAVE_GAME_KEY = 'cyoa_saved_game_v3';
+const SAVE_GAME_KEY = 'cyoa_saved_game_v4'; // Bumped version for new data structure
+
+const artStyles: { [key: string]: string } = {
+    'Photorealistic': 'Ultra-realistic, 8K resolution, sharp focus, detailed skin texture, professional studio lighting',
+    'Cinematic Film': 'Shot on 35mm film, subtle grain, anamorphic lens flare, moody and atmospheric lighting, high dynamic range',
+    'Digital Painting': 'Concept art style, visible brush strokes, dramatic lighting, epic fantasy aesthetic, highly detailed',
+    'Anime/Manga': 'Modern anime style, vibrant colors, sharp lines, dynamic action poses, cel-shaded',
+    'Cyberpunk Neon': 'Saturated neon colors, futuristic cityscape, rain-slicked streets, dystopian mood, Blade Runner aesthetic',
+};
+
+const alignments = [
+  'Lawful Good', 'Neutral Good', 'Chaotic Good',
+  'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
+  'Lawful Evil', 'Neutral Evil', 'Chaotic Evil'
+];
+
+// ===================================================================================
+//  LOCAL STORAGE SERVICE
+// ===================================================================================
 
 const saveGameState = (state: SavedGameState): void => {
   try {
@@ -100,9 +120,23 @@ const loadGameState = (): SavedGameState | null => {
   try {
     const stateString = localStorage.getItem(SAVE_GAME_KEY);
     if (stateString === null) return null;
-    return JSON.parse(stateString) as SavedGameState;
+    const state = JSON.parse(stateString) as any; // Parse as any to handle migration
+
+    // Migration from old format (v3)
+    if (state.fullWorldData && !state.worldInfo) {
+      state.worldInfo = [{ key: 'Imported Lore', content: state.fullWorldData, enabled: true }];
+      delete state.fullWorldData;
+    }
+    
+    // Ensure worldInfo is always a valid array
+    if (!state.worldInfo || !Array.isArray(state.worldInfo)) {
+        state.worldInfo = [];
+    }
+
+    return state as SavedGameState;
   } catch (error) {
     console.error("Failed to load game state:", error);
+    localStorage.removeItem(SAVE_GAME_KEY); // Clear corrupted data
     return null;
   }
 };
@@ -114,7 +148,6 @@ const clearGameState = (): void => {
     console.error("Failed to clear game state:", error);
   }
 };
-
 
 // ===================================================================================
 //  GEMINI API SERVICE
@@ -137,8 +170,15 @@ const verifyApiKey = async (): Promise<boolean> => {
     }
 };
 
-const summarizeWorldData = async (worldData: string): Promise<string> => {
+const formatWorldInfoToString = (worldInfo: WorldInfoEntry[]): string => {
+    return worldInfo
+        .map(entry => `## ${entry.key}\n\n${entry.content}`)
+        .join('\n\n---\n\n');
+}
+
+const summarizeWorldData = async (worldInfo: WorldInfoEntry[]): Promise<string> => {
     if (!ai) return '';
+    const worldData = formatWorldInfoToString(worldInfo);
     const summarizationPrompt = `You are a world-building assistant. Your task is to read the following extensive world lore and distill it into a concise, high-level summary. This summary will serve as the core, long-term memory for a Game Master AI. Focus on the most critical facts: key locations, major factions, overarching history, fundamental rules of magic/technology, and the general tone of the world. The summary should be dense with information but brief enough to be used as a quick reference. Output ONLY the summary.
 
 --- WORLD LORE START ---
@@ -173,11 +213,13 @@ Your Game Master mode is: ${settings.gmMode}. ${getModeInstruction(settings.gmMo
     --- WORLD SUMMARY END ---
 
 2.  **Player Character:** The player's appearance is "${character.description}". Class: ${character.class}. Alignment: ${character.alignment}. Backstory: ${character.backstory}.
+    **Skills:** ${JSON.stringify(character.skills)}. You MUST consider these skills when resolving actions. Success or failure can lead to skill updates.
 
 3.  **Character & World Progression:** You MUST signal changes using these tags:
     *   To update appearance: \`[char-img-prompt]New, complete description.[/char-img-prompt]\`
     *   To add to the character's journal: \`[update-backstory]Summary of key events.[/update-backstory]\`
     *   To manage inventory: \`[add-item]Item Name|Description[/add-item]\` or \`[remove-item]Item Name[/remove-item]\`.
+    *   To update a skill: \`[update-skill]Skill Name|New Value[/update-skill]\` (e.g., [update-skill]Stealth|25[/update-skill]). Use this to reflect character growth.
     *   **Scene Tag:** At the START of your narrative text, you MUST include a single, one-word tag describing the primary environment. This is CRITICAL for setting the visual mood. Examples: \`[scene-tag]forest[/scene-tag]\`, \`[scene-tag]cave[/scene-tag]\`, \`[scene-tag]city[/scene-tag]\`, \`[scene-tag]dungeon[/scene-tag]\`, \`[scene-tag]tavern[/scene-tag]\`.
 
 4.  **Image Prompts:** Generate image prompts for scenes (\`[img-prompt]\`) that are faithful to the narrative and the art style: "${settings.artStyle}". Follow safety rules strictly: focus on cinematic language, tension, and atmosphere, NOT explicit violence or gore.
@@ -215,54 +257,121 @@ const generateImage = async (prompt: string, artStyle: string, aspectRatio: '16:
   }
 };
 
-const suggestCharacterClass = async (backstory: string): Promise<string> => {
-    if (!ai || !backstory.trim()) return '';
-    const prompt = `Based on the following character backstory, suggest a single, concise fantasy RPG class (e.g., Rogue, Sorcerer, Paladin, Ranger). Output ONLY the class name.\n\n--- BACKSTORY ---\n${backstory}`;
+const enhanceWorldEntry = async (text: string): Promise<string> => {
+    if (!ai || !text.trim()) return text;
+    const prompt = `You are a creative writing assistant specializing in world-building. Take the following piece of lore and enrich it with compelling details, ensuring it remains consistent with the original themes. Preserve the user's core concepts but expand upon them. Output ONLY the enhanced text.\n\n--- USER LORE ---\n${text}`;
     try {
         const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-        return response.text.trim();
+        return response.text.trim() || text;
     } catch (error) {
-        console.error("Failed to suggest class:", error);
-        return '';
-    }
-};
-
-const enhanceWithAI = async (text: string, type: 'backstory' | 'world'): Promise<string> => {
-    if (!ai || !text.trim()) return text;
-    const prompt = type === 'backstory'
-        ? `You are a creative writing assistant. Take the following character backstory and enrich it with compelling details, plot hooks, and internal conflicts. Preserve the user's core concepts. Output ONLY the enhanced backstory.\n\n--- USER BACKSTORY ---\n${text}`
-        : `You are a master world-builder, a 'World Bible Forger'. Your task is to take the user's provided lore and expand it into a comprehensive, structured document.
-Follow these steps using the Gaia Forge Protocol:
-1.  **Analyze & Identify:** Read the entire lore and identify all key entities: locations, characters/people, factions, historical events, significant items, and unique concepts.
-2.  **Expand & Detail:** For each identified entity, create a detailed entry.
-    *   **Locations:** Describe their geography, inhabitants, culture, points of interest, and history.
-    *   **People:** Detail their appearance, personality, motivations, backstory, and relationships.
-    *   **Factions:** Explain their goals, hierarchy, members, and influence on the world.
-3.  **Iterative Refinement (3 Cycles):** Refine the entire World Bible three times. In each cycle, add more depth, ensure consistency, and create new connections between the entities.
-4.  **Final Output:** Format the final, comprehensive World Bible using clear Markdown headings for each section and entity. After the complete bible, append the user's original, unaltered lore under a "--- ORIGINAL LORE ---" heading.
-Output ONLY the final world data as described.
-
---- USER PROVIDED WORLD LORE ---
-${text}`;
-
-    try {
-        if (type === 'world') {
-            const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-            return response.text.trim() || text;
-        } else {
-             const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-             return response.text.trim() || text;
-        }
-    } catch (error) {
-        console.error(`Failed to enhance ${type}:`, error);
+        console.error(`Failed to enhance world entry:`, error);
         return text;
     }
 };
 
-// ===================================================================================
-//  HELPER UTILS
-// ===================================================================================
-const retrieveRelevantSnippets = (query: string, corpus: string, count = 3): string => {
+const structureWorldDataWithAI = async (text: string): Promise<WorldInfoEntry[]> => {
+    if (!ai || !text.trim()) return [];
+    const prompt = `You are a world-building assistant. Read the following unstructured lore document and organize it into a structured JSON format. Identify logical categories like "Locations", "Factions", "Characters", "History", "Magic System", etc., and group the relevant information under those keys.
+
+--- LORE DOCUMENT ---
+${text}
+--- END LORE DOCUMENT ---
+
+Output a JSON array where each object has a "key" (the category name) and a "content" (the lore for that category).`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            key: { type: Type.STRING },
+                            content: { type: Type.STRING },
+                        },
+                        required: ["key", "content"],
+                    },
+                },
+            },
+        });
+
+        let jsonStr = response.text.trim();
+        if (jsonStr.startsWith('```json')) {
+          jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
+        }
+        return JSON.parse(jsonStr) as WorldInfoEntry[];
+
+    } catch (error) {
+        console.error("Failed to structure world data with AI:", error);
+        // Fallback: return the whole text as a single entry
+        return [{ key: "Imported Lore", content: text }];
+    }
+};
+
+const generateCharacterDetails = async (characterInput: CharacterInput): Promise<Partial<CharacterInput>> => {
+    if (!ai) return {};
+
+    const prompt = `You are a character creation assistant for a fantasy RPG. Based on the provided character details, fill in any missing information and enhance any provided information.
+Return a JSON object with the keys "characterClass", "alignment", "backstory", and "skills".
+
+- **Appearance:** ${characterInput.description}
+- **Class:** ${characterInput.characterClass || '(Not specified, please generate)'}
+- **Alignment:** ${characterInput.alignment || '(Not specified, please generate)'}
+- **Backstory:** ${characterInput.backstory || '(Not specified, please generate a short one)'}
+- **Skills:** ${characterInput.skills || '(Not specified, please generate)'}
+
+**Instructions:**
+1.  **characterClass**: If the class is not specified or seems too generic (e.g., "Fighter"), provide a more creative and specific class name (e.g., "Sellsword Captain"). Otherwise, use the provided one and enhance it if possible.
+2.  **alignment**: Based on the character's description and backstory, select the most fitting alignment from this list: ${alignments.join(', ')}. If the user provided one, you can keep it or choose a more appropriate one if it strongly conflicts with the character's persona.
+3.  **backstory**: If the backstory is not specified, write a brief, evocative backstory (2-3 sentences). If a backstory is provided, expand upon it, adding compelling details or a plot hook, but keep the user's original ideas.
+4.  **skills**: If skills are not specified, generate a list of 3-5 relevant skills. If skills are provided, you can add 1-2 more thematically appropriate skills. The final output must be a single string in the format "Skill Name: Value, Another Skill: Value" with values between 5 and 20.
+`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        characterClass: { type: Type.STRING },
+                        alignment: { type: Type.STRING },
+                        backstory: { type: Type.STRING },
+                        skills: { type: Type.STRING },
+                    },
+                    required: ["characterClass", "alignment", "backstory", "skills"],
+                },
+            },
+        });
+        
+        let jsonStr = response.text.trim();
+        // Clean potential markdown formatting
+        if (jsonStr.startsWith('```json')) {
+          jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
+        }
+        const details = JSON.parse(jsonStr);
+        
+        return {
+            characterClass: details.characterClass,
+            alignment: details.alignment,
+            backstory: details.backstory,
+            skills: details.skills,
+        };
+
+    } catch (error) {
+        console.error("Failed to generate character details:", error);
+        return {}; // Return empty object on failure to avoid crashing
+    }
+};
+
+const retrieveRelevantSnippets = (query: string, worldInfo: WorldInfoEntry[], count = 3): string => {
+    const corpus = formatWorldInfoToString(worldInfo);
     const sentences = corpus.split(/(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s/);
     const queryWords = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 3));
 
@@ -276,39 +385,26 @@ const retrieveRelevantSnippets = (query: string, corpus: string, count = 3): str
     return scoredSentences.slice(0, count).map(item => item.sentence).join('\n');
 };
 
-const artStyles: { [key: string]: string } = {
-    'Photorealistic': 'Ultra-realistic, 8K resolution, sharp focus, detailed skin texture, professional studio lighting',
-    'Cinematic Film': 'Shot on 35mm film, subtle grain, anamorphic lens flare, moody and atmospheric lighting, high dynamic range',
-    'Digital Painting': 'Concept art style, visible brush strokes, dramatic lighting, epic fantasy aesthetic, highly detailed',
-    'Anime/Manga': 'Modern anime style, vibrant colors, sharp lines, dynamic action poses, cel-shaded',
-    'Cyberpunk Neon': 'Saturated neon colors, futuristic cityscape, rain-slicked streets, dystopian mood, Blade Runner aesthetic',
-};
-
-const alignments = [
-  'Lawful Good', 'Neutral Good', 'Chaotic Good',
-  'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
-  'Lawful Evil', 'Neutral Evil', 'Chaotic Evil'
-];
-
-
 // ===================================================================================
 //  COMPONENTS
 // ===================================================================================
 
 const SetupScreen: React.FC<{
-  onStart: (worldData: string, characterInput: CharacterInput, initialPrompt: string, settings: Settings) => void;
+  onStart: (worldInfo: WorldInfoEntry[], characterInput: CharacterInput, initialPrompt: string, settings: Settings) => void;
   onContinue: () => void;
   onLoadFromFile: (file: File) => void;
   hasSavedGame: boolean;
 }> = ({ onStart, onContinue, onLoadFromFile, hasSavedGame }) => {
-  const [worldData, setWorldData] = useState('');
+  const [worldInfo, setWorldInfo] = useState<WorldInfoEntry[]>([{ key: 'Main Lore', content: '' }]);
+  const [openWorldEntry, setOpenWorldEntry] = useState<number | null>(0);
   const [characterPrompt, setCharacterPrompt] = useState('');
   const [characterClass, setCharacterClass] = useState('');
   const [alignment, setAlignment] = useState('True Neutral');
   const [backstory, setBackstory] = useState('');
+  const [skills, setSkills] = useState('');
   const [initialPrompt, setInitialPrompt] = useState('');
-  const [isEnhancing, setIsEnhancing] = useState<'backstory' | 'world' | null>(null);
-  const [isSuggestingClass, setIsSuggestingClass] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState<number | null>(null);
+  const [isStructuring, setIsStructuring] = useState(false);
   const [settings, setSettings] = useState<Settings>({
       artStyle: artStyles['Cinematic Film'],
       gmMode: GameMasterMode.BALANCED,
@@ -319,42 +415,104 @@ const SetupScreen: React.FC<{
   const saveFileInputRef = useRef<HTMLInputElement>(null);
   const worldFileInputRef = useRef<HTMLInputElement>(null);
 
+  const isWorldDataValid = useMemo(() => worldInfo.some(entry => entry.key.trim() && entry.content.trim()), [worldInfo]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!worldData.trim() || !characterPrompt.trim() || !initialPrompt.trim()) return;
-    const characterInput: CharacterInput = { description: characterPrompt, characterClass, alignment, backstory };
-    onStart(worldData, characterInput, initialPrompt, settings);
+    if (!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isStructuring) return;
+    const characterInput: CharacterInput = { description: characterPrompt, characterClass, alignment, backstory, skills };
+    onStart(worldInfo, characterInput, initialPrompt, settings);
   };
   
-  const handleEnhance = async (type: 'backstory' | 'world') => {
-    setIsEnhancing(type);
-    const text = type === 'world' ? worldData : backstory;
-    const enhanced = await enhanceWithAI(text, type);
-    if (type === 'world') setWorldData(enhanced);
-    else setBackstory(enhanced);
+  const handleEnhanceWorldEntry = async (index: number) => {
+    setIsEnhancing(index);
+    const enhanced = await enhanceWorldEntry(worldInfo[index].content);
+    updateWorldInfo(index, 'content', enhanced);
     setIsEnhancing(null);
   }
 
-  const handleSuggestClass = async () => {
-    if (!backstory.trim()) return;
-    setIsSuggestingClass(true);
-    const suggestedClass = await suggestCharacterClass(backstory);
-    if(suggestedClass) setCharacterClass(suggestedClass);
-    setIsSuggestingClass(false);
-  }
-  
-  const handleLoadWorldFromFile = (file: File) => {
-    if (file && (file.type === 'text/plain' || file.type === 'text/markdown' || file.name.endsWith('.md'))) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const content = e.target?.result as string;
-            setWorldData(content);
-        };
-        reader.readAsText(file);
-    } else {
-        alert('Please select a .txt or .md file for the world data.');
-    }
+  const addWorldInfoEntry = () => {
+    setWorldInfo(prev => [...prev, { key: '', content: '' }]);
+    setOpenWorldEntry(worldInfo.length);
   };
+
+  const updateWorldInfo = (index: number, field: 'key' | 'content', value: string) => {
+    setWorldInfo(prev => prev.map((entry, i) => i === index ? { ...entry, [field]: value } : entry));
+  };
+  
+  const removeWorldInfoEntry = (index: number) => {
+    if (worldInfo.length > 1) {
+        setWorldInfo(prev => prev.filter((_, i) => i !== index));
+    } else {
+        setWorldInfo([{ key: 'Main Lore', content: '' }]); // Reset if it's the last one
+    }
+    if (openWorldEntry === index) setOpenWorldEntry(null);
+  };
+  
+  const handleLoadWorldFromFile = async (file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const content = e.target?.result as string;
+        if (file.name.endsWith('.json')) {
+            try {
+                const jsonData = JSON.parse(content);
+                if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
+                    setWorldInfo(jsonData);
+                    setOpenWorldEntry(0);
+                } else { alert('Invalid JSON structure for world data.'); }
+            } catch (err) { alert('Failed to parse JSON file.'); }
+        } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
+            // Attempt to parse via Markdown headers first
+            const headerRegex = /^(#{1,6})\s+(.*)$/gm;
+            const matches = [...content.matchAll(headerRegex)];
+
+            if (matches.length > 0) {
+                const structuredEntries: WorldInfoEntry[] = [];
+                for (let i = 0; i < matches.length; i++) {
+                    const key = matches[i][2].trim();
+                    const startIndex = matches[i].index! + matches[i][0].length;
+                    const endIndex = i + 1 < matches.length ? matches[i + 1].index! : content.length;
+                    const entryContent = content.substring(startIndex, endIndex).trim();
+                    if (key && entryContent) {
+                        structuredEntries.push({ key, content: entryContent });
+                    }
+                }
+                setWorldInfo(structuredEntries);
+                setOpenWorldEntry(0);
+            } else {
+                 if (!window.confirm("This appears to be an unstructured lore file. Would you like to use AI to automatically organize it into categories? This may take a moment.")) {
+                    const newKey = file.name.replace(/\.(txt|md)$/, '');
+                    setWorldInfo([{ key: newKey, content }]); // Load as single entry if user declines
+                    return;
+                }
+                
+                setIsStructuring(true);
+                try {
+                    const structuredData = await structureWorldDataWithAI(content);
+                    if (structuredData.length > 0) {
+                        setWorldInfo(structuredData);
+                        setOpenWorldEntry(0);
+                    } else {
+                        alert("AI structuring failed. Loading content as a single entry.");
+                        const newKey = file.name.replace(/\.(txt|md)$/, '');
+                        setWorldInfo([{ key: newKey, content }]);
+                    }
+                } catch (error) {
+                    alert("An error occurred during AI structuring. Loading content as a single entry.");
+                    const newKey = file.name.replace(/\.(txt|md)$/, '');
+                    setWorldInfo([{ key: newKey, content }]);
+                } finally {
+                    setIsStructuring(false);
+                }
+            }
+        } else {
+            alert('Please select a .json, .txt, or .md file.');
+        }
+    };
+    reader.readAsText(file);
+  };
+
 
   const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
       setSettings(s => ({ ...s, [key]: value }));
@@ -374,31 +532,65 @@ const SetupScreen: React.FC<{
         <form onSubmit={handleSubmit} className="space-y-6">
             <div>
                 <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-xl font-semibold text-indigo-300">1. Establish Your World</h3>
+                    <h3 className="text-xl font-semibold text-indigo-300">1. Build Your World Anvil</h3>
                      <div className="flex items-center gap-4">
-                        <input type="file" ref={worldFileInputRef} onChange={(e) => e.target.files && handleLoadWorldFromFile(e.target.files[0])} className="hidden" accept=".txt,.md" />
+                        <input type="file" ref={worldFileInputRef} onChange={(e) => e.target.files && handleLoadWorldFromFile(e.target.files[0])} className="hidden" accept=".txt,.md,.json" />
                         <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-sky-300 hover:text-sky-200">Load from File</button>
-                        <button type="button" onClick={() => handleEnhance('world')} disabled={isEnhancing === 'world' || !worldData.trim()} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500">{isEnhancing === 'world' ? 'Forging...' : 'Enhance with AI ✨'}</button>
                     </div>
                 </div>
-                <textarea value={worldData} onChange={(e) => setWorldData(e.target.value)} placeholder="Provide the lore, rules, and setting for your world... or load a file." className="w-full h-40 bg-slate-900 border border-slate-600 rounded-md p-4 focus:ring-2 focus:ring-indigo-500 transition resize-none" required disabled={isEnhancing === 'world'} />
-                 <p className="text-xs text-slate-500 mt-1">For very large worlds, an initial summarization will occur on game start to ensure performance.</p>
+                {isStructuring && (
+                    <div className="my-2 text-center p-3 bg-slate-900 rounded-lg border border-slate-700">
+                        <div className="flex items-center justify-center space-x-2">
+                            <svg className="animate-spin h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span className="text-indigo-300 font-semibold">AI is organizing your world lore...</span>
+                        </div>
+                    </div>
+                )}
+                <div className={`space-y-2 bg-slate-900/50 border border-slate-700 rounded-lg p-2 ${isStructuring ? 'opacity-50 pointer-events-none' : ''}`}>
+                    {worldInfo.map((entry, index) => (
+                        <div key={index} className="bg-slate-800/70 rounded">
+                            <button type="button" onClick={() => setOpenWorldEntry(openWorldEntry === index ? null : index)} className="w-full flex justify-between items-center p-3 text-left">
+                                <span className="font-semibold text-slate-200">{entry.key || `Entry ${index + 1}`}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-400 transition-transform ${openWorldEntry === index ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                            </button>
+                            {openWorldEntry === index && (
+                                <div className="p-3 border-t border-slate-700 space-y-3 animate-fade-in">
+                                    <input type="text" value={entry.key} onChange={(e) => updateWorldInfo(index, 'key', e.target.value)} placeholder="Entry Key (e.g., Locations)" className="w-full bg-slate-900 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500" />
+                                    <textarea value={entry.content} onChange={(e) => updateWorldInfo(index, 'content', e.target.value)} placeholder="Describe the lore for this entry..." className="w-full h-32 bg-slate-900 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 resize-y" />
+                                    <div className="flex justify-between items-center">
+                                        <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim()} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
+                                        <button type="button" onClick={() => removeWorldInfoEntry(index)} className="text-xs font-semibold text-red-400 hover:text-red-300">Delete Entry</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                    <button type="button" onClick={addWorldInfoEntry} className="w-full bg-slate-700/50 text-slate-300 font-semibold py-2 rounded hover:bg-slate-700 transition">Add Lore Entry</button>
+                </div>
+                 <p className="text-xs text-slate-500 mt-1">Create distinct entries for locations, factions, history, etc. For large worlds, an initial summary will be generated on game start.</p>
             </div>
             <div>
                 <h3 className="text-xl font-semibold text-indigo-300 mb-2">2. Create Your Character</h3>
                 <input type="text" value={characterPrompt} onChange={(e) => setCharacterPrompt(e.target.value)} placeholder="Describe your character's appearance..." className="w-full bg-slate-900 border border-slate-600 rounded-md p-4 mb-4 focus:ring-2 focus:ring-indigo-500 transition" required />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-2">
-                        <input type="text" value={characterClass} onChange={(e) => setCharacterClass(e.target.value)} placeholder="Class (e.g., Rogue)" className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
-                        <button type="button" onClick={handleSuggestClass} disabled={!backstory.trim() || isSuggestingClass} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500">{isSuggestingClass ? '...' : 'Suggest ✨'}</button>
+                    <div>
+                        <label className="text-sm text-slate-400 mb-1 block">Class (Optional)</label>
+                        <input type="text" value={characterClass} onChange={(e) => setCharacterClass(e.target.value)} placeholder="Leave blank for AI generation" className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
                     </div>
-                    <select value={alignment} onChange={(e) => setAlignment(e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition">
-                        {alignments.map(align => <option key={align} value={align}>{align}</option>)}
-                    </select>
+                    <div>
+                        <label className="text-sm text-slate-400 mb-1 block">Alignment</label>
+                        <select value={alignment} onChange={(e) => setAlignment(e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition">
+                            {alignments.map(align => <option key={align} value={align}>{align}</option>)}
+                        </select>
+                    </div>
                 </div>
-                 <div className="mt-4">
-                    <div className="flex justify-between items-center mb-1"><label className="text-sm text-slate-400">Backstory (Optional)</label><button type="button" onClick={() => handleEnhance('backstory')} disabled={isEnhancing === 'backstory' || !backstory.trim()} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500">{isEnhancing === 'backstory' ? 'Enhancing...' : 'Enhance with AI ✨'}</button></div>
-                    <textarea value={backstory} onChange={(e) => setBackstory(e.target.value)} disabled={isEnhancing === 'backstory'} className="w-full h-24 bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition resize-none" />
+                <div className="mt-4">
+                    <label className="text-sm text-slate-400">Backstory (Optional - AI will generate or enhance)</label>
+                    <textarea value={backstory} onChange={(e) => setBackstory(e.target.value)} placeholder="Provide a few ideas, or leave blank for a surprise..." className="w-full h-24 bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition resize-none" />
+                </div>
+                <div className="mt-4">
+                     <label className="text-sm text-slate-400">Skills (Optional - AI will generate or enhance)</label>
+                     <input type="text" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="e.g., Persuasion: 10, or leave blank" className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
                 </div>
             </div>
             <div>
@@ -428,7 +620,7 @@ const SetupScreen: React.FC<{
                     </div>
                 </div>
             </div>
-            <button type="submit" disabled={!worldData.trim() || !characterPrompt.trim() || !initialPrompt.trim()} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 transition-all text-lg">Start New Adventure</button>
+            <button type="submit" disabled={!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isStructuring} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 transition-all text-lg">Start New Adventure</button>
         </form>
     </div>
   );
@@ -447,7 +639,7 @@ const StoryBlock: React.FC<{
   
   return (
     <div className="mb-8 animate-fade-in group">
-      { (entry.imageUrl || (entry.imgPrompt && !settings.generateSceneImages)) &&
+      { (entry.imageUrl || (entry.imgPrompt && settings.generateSceneImages === false)) &&
         <div className="relative mb-4">
           <div className="rounded-lg overflow-hidden border-2 border-slate-700/50 shadow-lg aspect-video bg-slate-900 flex items-center justify-center">
             {entry.imageUrl ? <img src={entry.imageUrl} alt="A scene from the story" className="w-full h-full object-cover" /> :
@@ -475,10 +667,10 @@ const StatusSidebar: React.FC<{
   inventory: InventoryItem[];
   isImageLoading: boolean;
   onRegenerate: () => void;
+  onOpenWorldKnowledge: () => void;
   apiStatus: 'checking' | 'valid' | 'invalid' | 'missing';
   settings: Settings;
-}> = React.memo(({ character, inventory, isImageLoading, onRegenerate, apiStatus, settings }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+}> = React.memo(({ character, inventory, isImageLoading, onRegenerate, onOpenWorldKnowledge, apiStatus, settings }) => {
   const latestPortrait = character.portraits[character.portraits.length - 1];
 
   const ApiStatusIndicator = () => {
@@ -505,9 +697,12 @@ const StatusSidebar: React.FC<{
          <div className="p-4 text-center text-slate-500">{settings.generateCharacterPortraits ? 'No portrait generated.' : 'Character Portrait Generation Disabled.'}</div>
         }
       </div>
-      <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits} className="w-full mt-4 bg-indigo-600 text-white text-sm font-bold py-2.5 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed transition">
-        {settings.generateCharacterPortraits ? '↻ Regenerate Portrait' : 'Portrait Gen Disabled'}
-      </button>
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits} className="w-full bg-indigo-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed transition">
+          {settings.generateCharacterPortraits ? '↻ Portrait' : 'Portraits Off'}
+        </button>
+        <button onClick={onOpenWorldKnowledge} className="w-full bg-sky-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-sky-700 transition">Search World Lore</button>
+      </div>
 
       <div className="flex-grow overflow-y-auto custom-scrollbar mt-4 pt-4 border-t-2 border-slate-700 space-y-4">
         <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Appearance</h3><p className="text-sm text-slate-300 font-serif leading-relaxed">{character.description}</p></div>
@@ -516,6 +711,7 @@ const StatusSidebar: React.FC<{
             {character.class && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Class</h3><p className="text-lg text-white font-serif">{character.class}</p></div>}
             {character.alignment && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Alignment</h3><p className="text-lg text-white font-serif">{character.alignment}</p></div>}
         </div>
+        {Object.keys(character.skills).length > 0 && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Skills</h3><div className="grid grid-cols-2 gap-x-4 gap-y-1">{Object.entries(character.skills).map(([name, value]) => <div key={name} className="flex justify-between text-sm"><span className="text-slate-300">{name}</span><span className="font-bold text-white">{value}</span></div>)}</div></div>}
         {character.backstory && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Character Log</h3><p className="text-sm text-slate-300 whitespace-pre-wrap font-serif leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">{character.backstory}</p></div>}
       </div>
     </div>
@@ -526,12 +722,12 @@ const SettingsModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     settings: Settings;
-    onSettingsChange: (newSettings: Settings) => void;
+    onSettingsChange: (newSettings: Partial<Settings>) => void;
 }> = ({ isOpen, onClose, settings, onSettingsChange }) => {
     if (!isOpen) return null;
     
     const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
-        onSettingsChange({ ...settings, [key]: value });
+        onSettingsChange({ [key]: value });
     };
 
     return (
@@ -561,83 +757,445 @@ const SettingsModal: React.FC<{
     );
 };
 
+const WorldKnowledgeModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    worldInfo: WorldInfoEntry[];
+}> = ({ isOpen, onClose, worldInfo }) => {
+    const [query, setQuery] = useState('');
+    const [results, setResults] = useState<WorldInfoEntry[]>([]);
+    
+    useEffect(() => {
+        if (!isOpen) {
+            setQuery('');
+            setResults([]);
+            return;
+        }
+        if (query.trim().length < 3) {
+            setResults([]);
+            return;
+        }
+        
+        const search = () => {
+            const lowerCaseQuery = query.toLowerCase();
+            const found = worldInfo.filter(entry => 
+                entry.key.toLowerCase().includes(lowerCaseQuery) || 
+                entry.content.toLowerCase().includes(lowerCaseQuery)
+            );
+            setResults(found);
+        };
+        const timeoutId = setTimeout(search, 300);
+        return () => clearTimeout(timeoutId);
+    }, [query, isOpen, worldInfo]);
+    
+    if (!isOpen) return null;
+
+    const highlight = (text: string) => {
+        if (!query.trim()) return text;
+        try {
+            const regex = new RegExp(`(${query})`, 'gi');
+            return text.replace(regex, '<mark class="bg-yellow-400 text-black px-1 rounded">$1</mark>');
+        } catch (e) {
+            // Invalid regex from user input, just return original text
+            return text;
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-slate-800 w-full max-w-3xl h-[80vh] rounded-lg shadow-2xl border border-slate-700 p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center flex-shrink-0"><h2 className="text-2xl font-bold text-sky-300 font-serif">Search World Lore</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
+                <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search for locations, characters, events..." className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 my-4 focus:ring-2 focus:ring-sky-500" autoFocus />
+                <div className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2">
+                    {results.length > 0 ? (
+                        results.map((entry, i) => (
+                          <div key={i} className="mb-4 p-4 bg-slate-900/50 border border-slate-700 rounded-md">
+                            <h3 className="text-lg font-bold text-sky-200 mb-2" dangerouslySetInnerHTML={{ __html: highlight(entry.key) }} />
+                            <p className="text-slate-300 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: highlight(entry.content) }} />
+                          </div>
+                        ))
+                    ) : (
+                        <div className="text-slate-400 text-center pt-10">{query.trim().length >= 3 ? 'No results found.' : 'Enter at least 3 characters to search.'}</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const GameLogModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    storyLog: StoryEntry[];
+}> = ({ isOpen, onClose, storyLog }) => {
+    if (!isOpen) return null;
+    const scrollRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+      scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+    }, [storyLog]);
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-slate-800 w-full max-w-3xl h-[80vh] rounded-lg shadow-2xl border border-slate-700 p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-indigo-300 font-serif">Game Log</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
+                <div ref={scrollRef} className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2 space-y-4">
+                    {storyLog.map((entry, index) => (
+                        <div key={index}>
+                            {entry.type === 'player' ? (
+                                <div className="flex justify-end"><div className="bg-indigo-600/40 p-3 rounded-lg max-w-[80%]"><p className="text-indigo-100 italic">{entry.content}</p></div></div>
+                            ) : (
+                                <div className="bg-slate-700/30 p-3 rounded-lg"><ReactMarkdown children={entry.content} remarkPlugins={[remarkGfm]} components={{ p: ({node, ...props}) => <p className="text-slate-200 text-sm mb-2 last:mb-0" {...props} /> }} /></div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 // ===================================================================================
-//  MAIN APP
+//  STATE MANAGEMENT (useReducer)
+// ===================================================================================
+
+type AppState = {
+    gamePhase: GamePhase;
+    storyLog: StoryEntry[];
+    error: string | null;
+    worldInfo: WorldInfoEntry[];
+    worldSummary: string;
+    settings: Settings;
+    character: Character;
+    inventory: InventoryItem[];
+    isCharacterImageLoading: boolean;
+    loadingMessage: string;
+    hasSavedGame: boolean;
+    apiStatus: 'checking' | 'valid' | 'invalid' | 'missing';
+};
+
+type Action =
+    | { type: 'START_NEW_GAME'; payload: { worldInfo: WorldInfoEntry[]; worldSummary: string; character: Character; settings: Settings; } }
+    | { type: 'LOAD_GAME'; payload: SavedGameState }
+    | { type: 'SET_PHASE'; payload: GamePhase }
+    | { type: 'SET_LOADING_MESSAGE'; payload: string }
+    | { type: 'SET_ERROR'; payload: string }
+    | { type: 'PLAYER_ACTION'; payload: string }
+    | { type: 'STREAM_CHUNK'; payload: string }
+    | { type: 'FINISH_TURN'; payload: { entry: StoryEntry; character?: Partial<Character>; inventory?: InventoryItem[]; skillUpdates?: Record<string, number> } }
+    | { type: 'UPDATE_SETTINGS'; payload: Partial<Settings> }
+    | { type: 'UPDATE_SCENE_IMAGE'; payload: { index: number, imageUrl?: string, isLoading: boolean } }
+    | { type: 'UPDATE_CHARACTER_IMAGE_STATUS'; payload: boolean }
+    | { type: 'UPDATE_CHARACTER'; payload: Partial<Character> }
+    | { type: 'SET_API_STATUS'; payload: 'valid' | 'invalid' }
+    | { type: 'SET_HAS_SAVED_GAME'; payload: boolean }
+
+
+const initialState: AppState = {
+    gamePhase: GamePhase.SETUP,
+    storyLog: [],
+    error: null,
+    worldInfo: [],
+    worldSummary: '',
+    settings: {
+        artStyle: artStyles['Cinematic Film'],
+        gmMode: GameMasterMode.BALANCED,
+        generateSceneImages: true,
+        generateCharacterPortraits: true,
+        dynamicBackgrounds: true,
+    },
+    character: { portraits: [], description: '', class: '', alignment: '', backstory: '', skills: {} },
+    inventory: [],
+    isCharacterImageLoading: false,
+    loadingMessage: 'Loading...',
+    hasSavedGame: false,
+    apiStatus: API_KEY ? 'checking' : 'missing',
+};
+
+function appReducer(state: AppState, action: Action): AppState {
+    switch (action.type) {
+        case 'SET_PHASE':
+            return { ...state, gamePhase: action.payload, error: action.payload === GamePhase.ERROR ? state.error : null };
+        case 'SET_LOADING_MESSAGE':
+            return { ...state, loadingMessage: action.payload };
+        case 'START_NEW_GAME':
+            clearGameState();
+            return {
+                ...initialState,
+                ...action.payload,
+                apiStatus: state.apiStatus,
+                storyLog: [],
+                inventory: [],
+                hasSavedGame: false,
+                gamePhase: GamePhase.LOADING,
+            };
+        case 'LOAD_GAME':
+            const { storyLog, worldInfo, worldSummary, settings, character, inventory } = action.payload;
+            return { ...state, storyLog, worldInfo, worldSummary, settings, character, inventory, gamePhase: GamePhase.PLAYING };
+        case 'PLAYER_ACTION':
+            const playerEntry: StoryEntry = { type: 'player', content: action.payload };
+            const aiEntry: StoryEntry = { type: 'ai', content: '', isStreaming: true, choices: [] };
+            return { ...state, storyLog: [...state.storyLog, playerEntry, aiEntry], gamePhase: GamePhase.LOADING, error: null };
+        case 'STREAM_CHUNK':
+            const lastIndex = state.storyLog.length - 1;
+            if (lastIndex >= 0 && state.storyLog[lastIndex].type === 'ai' && state.storyLog[lastIndex].isStreaming) {
+                const newStoryLog = [...state.storyLog];
+                const currentContent = newStoryLog[lastIndex].content;
+                newStoryLog[lastIndex] = { ...newStoryLog[lastIndex], content: currentContent + action.payload };
+                return { ...state, storyLog: newStoryLog };
+            }
+            return state;
+        case 'FINISH_TURN': {
+            const finalLog = [...state.storyLog];
+            finalLog[finalLog.length - 1] = action.payload.entry;
+            const needsCharacterUpdate = action.payload.character || action.payload.skillUpdates;
+            return {
+                ...state,
+                storyLog: finalLog,
+                character: needsCharacterUpdate ? {
+                    ...state.character,
+                    ...action.payload.character,
+                    skills: { ...state.character.skills, ...action.payload.skillUpdates }
+                } : state.character,
+                inventory: action.payload.inventory || state.inventory,
+                gamePhase: GamePhase.PLAYING,
+            };
+        }
+        case 'UPDATE_SETTINGS':
+            return { ...state, settings: { ...state.settings, ...action.payload } };
+        case 'UPDATE_CHARACTER':
+            return { ...state, character: { ...state.character, ...action.payload } };
+        case 'UPDATE_CHARACTER_IMAGE_STATUS':
+            return { ...state, isCharacterImageLoading: action.payload };
+         case 'UPDATE_SCENE_IMAGE':
+            return { ...state, storyLog: state.storyLog.map((e, i) => i === action.payload.index ? {...e, imageUrl: action.payload.imageUrl, isImageLoading: action.payload.isLoading} : e) };
+        case 'SET_ERROR':
+            return { ...state, error: action.payload, gamePhase: GamePhase.ERROR };
+        case 'SET_API_STATUS':
+            return { ...state, apiStatus: action.payload };
+        case 'SET_HAS_SAVED_GAME':
+            return { ...state, hasSavedGame: action.payload };
+        default:
+            return state;
+    }
+}
+
+// ===================================================================================
+//  REFACTORED UI COMPONENTS
+// ===================================================================================
+
+const ChoiceAndInputPanel: React.FC<{
+    isAITurn: boolean;
+    choices: string[];
+    onPlayerAction: (action: string) => void;
+    canUndo: boolean;
+    onUndo: () => void;
+    onOpenSettings: () => void;
+    onOpenLog: () => void;
+    onNewGame: () => void;
+}> = ({ isAITurn, choices, onPlayerAction, canUndo, onUndo, onOpenSettings, onOpenLog, onNewGame }) => {
+    const [playerInput, setPlayerInput] = useState('');
+
+    useEffect(() => {
+        const handleKeyPress = (e: KeyboardEvent) => {
+            if (isAITurn) return;
+            const keyNum = parseInt(e.key);
+            if (keyNum >= 1 && keyNum <= choices.length) {
+                onPlayerAction(choices[keyNum - 1]);
+            }
+        };
+        window.addEventListener('keydown', handleKeyPress);
+        return () => window.removeEventListener('keydown', handleKeyPress);
+    }, [choices, isAITurn, onPlayerAction]);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (playerInput.trim()) {
+            onPlayerAction(playerInput);
+            setPlayerInput('');
+        }
+    };
+
+    return (
+        <>
+            {choices.length > 0 &&
+                <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {choices.map((choice, i) => <button key={i} onClick={() => onPlayerAction(choice)} disabled={isAITurn} className="text-left bg-slate-700/80 p-3 rounded-lg hover:bg-indigo-600 transition-all disabled:bg-slate-700 disabled:cursor-not-allowed"><span className="text-xs font-mono bg-slate-800 rounded px-1.5 py-0.5 mr-2">{i+1}</span>{choice}</button>)}
+                </div>
+            }
+            <div className="flex items-center gap-2">
+                <form onSubmit={handleSubmit} className="flex-grow flex items-center gap-2">
+                    <input type="text" value={playerInput} onChange={e => setPlayerInput(e.target.value)} placeholder={isAITurn ? "Game Master is thinking..." : "What do you do?"} disabled={isAITurn} className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-3 disabled:bg-slate-700" autoFocus />
+                    <button type="submit" disabled={isAITurn || !playerInput.trim()} className="bg-indigo-600 font-bold py-3 px-5 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500">Send</button>
+                </form>
+                <button onClick={onUndo} disabled={!canUndo || isAITurn} title="Undo" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 15l-3-3m0 0l3-3m-3 3h8a5 5 0 000-10H9" /></svg>
+                </button>
+                 <button onClick={onOpenSettings} title="Settings" disabled={isAITurn} className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </button>
+                <button onClick={onOpenLog} title="View Log" disabled={isAITurn} className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+                </button>
+                <button onClick={onNewGame} title="New Game" disabled={isAITurn} className="p-3 bg-red-800/80 rounded-lg hover:bg-red-700 disabled:bg-slate-700 disabled:cursor-not-allowed">
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </button>
+            </div>
+        </>
+    );
+};
+
+const GameUI: React.FC<{
+    state: AppState;
+    previousGameState: SavedGameState | null;
+    onPlayerAction: (action: string) => void;
+    onRegenerateResponse: () => void;
+    onUpdateCharacterImage: (description: string) => void;
+    onUpdateSceneImage: (index: number, prompt: string) => void;
+    onUndo: () => void;
+    onOpenSettings: () => void;
+    onOpenLog: () => void;
+    onNewGame: () => void;
+    onOpenWorldKnowledge: () => void;
+}> = ({ state, previousGameState, onPlayerAction, onRegenerateResponse, onUpdateCharacterImage, onUpdateSceneImage, onUndo, onOpenSettings, onOpenLog, onNewGame, onOpenWorldKnowledge }) => {
+    const logEndRef = useRef<HTMLDivElement>(null);
+    useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [state.storyLog]);
+
+    const choices = state.storyLog[state.storyLog.length - 1]?.choices || [];
+    const isAITurn = state.gamePhase === GamePhase.LOADING;
+
+    return (
+        <main className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 h-[85vh]">
+            <StatusSidebar 
+                character={state.character}
+                inventory={state.inventory}
+                isImageLoading={state.isCharacterImageLoading}
+                onRegenerate={() => onUpdateCharacterImage(state.character.description)}
+                onOpenWorldKnowledge={onOpenWorldKnowledge}
+                apiStatus={state.apiStatus}
+                settings={state.settings}
+            />
+            <div className="flex-grow h-full flex flex-col bg-slate-800 p-4 sm:p-6 rounded-xl shadow-2xl border border-slate-700">
+                <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar">
+                    {state.storyLog.map((entry, index) =>
+                      entry.type === 'ai' ? (
+                        <StoryBlock 
+                          key={index} entry={entry} settings={state.settings}
+                          onRegenerateResponse={onRegenerateResponse}
+                          isLastEntry={index === state.storyLog.map(e => e.type).lastIndexOf('ai')}
+                          canRegenerate={!!previousGameState && state.gamePhase !== GamePhase.LOADING}
+                          onRegenerateImage={() => entry.imgPrompt && onUpdateSceneImage(index, entry.imgPrompt)}
+                        />
+                      ) : (
+                        <div key={index} className="mb-8 animate-fade-in flex justify-end">
+                            <div className="max-w-[80%] bg-indigo-600/40 p-4 rounded-lg"><p className="text-indigo-100 italic">{entry.content}</p></div>
+                        </div>
+                      )
+                    )}
+                    {state.error && <div className="text-red-400 p-4 bg-red-900/50 rounded-md">{state.error}</div>}
+                    <div ref={logEndRef} />
+                </div>
+                <div className="flex-shrink-0 mt-auto pt-4 border-t border-slate-700">
+                    <ChoiceAndInputPanel
+                        isAITurn={isAITurn}
+                        choices={choices}
+                        onPlayerAction={onPlayerAction}
+                        canUndo={!!previousGameState}
+                        onUndo={onUndo}
+                        onOpenSettings={onOpenSettings}
+                        onOpenLog={onOpenLog}
+                        onNewGame={onNewGame}
+                    />
+                </div>
+            </div>
+        </main>
+    );
+};
+
+// ===================================================================================
+//  MAIN APP COMPONENT
 // ===================================================================================
 
 const App: React.FC = () => {
-    const [gamePhase, setGamePhase] = useState<GamePhase>(GamePhase.SETUP);
-    const [storyLog, setStoryLog] = useState<StoryEntry[]>([]);
+    const [state, dispatch] = useReducer(appReducer, initialState);
     const [chatSession, setChatSession] = useState<Chat | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [fullWorldData, setFullWorldData] = useState('');
-    const [worldSummary, setWorldSummary] = useState('');
-    const [settings, setSettings] = useState<Settings>({ 
-        artStyle: artStyles['Cinematic Film'], 
-        gmMode: GameMasterMode.BALANCED, 
-        generateSceneImages: true, 
-        generateCharacterPortraits: true, 
-        dynamicBackgrounds: true 
-    });
-    const [character, setCharacter] = useState<Character>({ portraits: [], description: '', class: '', alignment: '', backstory: '' });
-    const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [previousGameState, setPreviousGameState] = useState<SavedGameState | null>(null);
-    const [hasSavedGame, setHasSavedGame] = useState(false);
-    const [isCharacterImageLoading, setIsCharacterImageLoading] = useState(false);
-    const [loadingMessage, setLoadingMessage] = useState('Loading...');
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-    const [apiStatus, setApiStatus] = useState<'checking' | 'valid' | 'invalid' | 'missing'>(API_KEY ? 'checking' : 'missing');
+    const [isWorldModalOpen, setIsWorldModalOpen] = useState(false);
+    const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     
-    // This ref stores the settings that the current chat session was initialized with.
-    // It's used to detect when a change requires re-initializing the chat.
-    const activeChatSettings = useRef<Settings>(settings);
+    const activeChatSettings = useRef<Settings>(state.settings);
 
+    // Create a ref to hold the latest state, setters, and other values needed by callbacks.
+    // This avoids stale closures in async functions without needing massive dependency arrays.
+    const callbackDependencies = useRef({
+      state,
+      chatSession,
+      setPreviousGameState,
+      dispatch,
+      activeChatSettings
+    });
 
+    // Keep the ref updated on every render with the latest values.
     useEffect(() => {
-        if (loadGameState()) setHasSavedGame(true);
-        if (apiStatus === 'checking') {
-            verifyApiKey().then(isValid => setApiStatus(isValid ? 'valid' : 'invalid'));
+        callbackDependencies.current = {
+            state,
+            chatSession,
+            setPreviousGameState,
+            dispatch,
+            activeChatSettings
+        };
+    });
+
+    // Initial check for saved game and API key
+    useEffect(() => {
+        if (loadGameState()) {
+            dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
+        }
+        if (state.apiStatus === 'checking') {
+            verifyApiKey().then(isValid => dispatch({ type: 'SET_API_STATUS', payload: isValid ? 'valid' : 'invalid' }));
         }
     }, []);
 
-    // Effect to re-initialize chat when critical settings (art style, GM mode) change mid-game.
-    // This is the key fix for the app freezing or becoming unstable.
+    // Effect to re-initialize chat when critical settings change mid-game.
     useEffect(() => {
-        if (gamePhase !== GamePhase.PLAYING || !chatSession) return;
+        if (state.gamePhase !== GamePhase.PLAYING || !chatSession) return;
 
         const needsReinitialization =
-            settings.gmMode !== activeChatSettings.current.gmMode ||
-            settings.artStyle !== activeChatSettings.current.artStyle;
+            state.settings.gmMode !== activeChatSettings.current.gmMode ||
+            state.settings.artStyle !== activeChatSettings.current.artStyle;
 
         if (needsReinitialization) {
             const reinitialize = async () => {
-                setLoadingMessage('Updating Game Master settings...');
-                setGamePhase(GamePhase.LOADING);
+                dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Updating Game Master settings...' });
+                dispatch({ type: 'SET_PHASE', payload: GamePhase.LOADING });
                 try {
                     const history = await chatSession.getHistory();
-                    const newChat = initializeChat(worldSummary, character, settings, history);
+                    const newChat = initializeChat(state.worldSummary, state.character, state.settings, history);
                     if (!newChat) throw new Error("Failed to re-initialize chat session.");
                     setChatSession(newChat);
-                    activeChatSettings.current = { ...settings }; // Update the active settings ref
+                    activeChatSettings.current = { ...state.settings };
                 } catch (e) {
                     console.error(e);
-                    setError("Failed to update settings with the Game Master. Reverting.");
-                    setSettings(activeChatSettings.current); // Revert to last known good settings
+                    dispatch({ type: 'SET_ERROR', payload: "Failed to update settings. Please try again." });
+                    dispatch({ type: 'UPDATE_SETTINGS', payload: activeChatSettings.current });
                 } finally {
-                    setGamePhase(GamePhase.PLAYING);
+                    dispatch({ type: 'SET_PHASE', payload: GamePhase.PLAYING });
                 }
             };
             reinitialize();
         }
-    }, [settings, gamePhase, chatSession, worldSummary, character]);
+    }, [state.settings, state.gamePhase, chatSession, state.worldSummary, state.character]);
 
-    const processFinalResponse = useCallback(async (responseText: string): Promise<Partial<StoryEntry> & { newCharacterDescription?: string; newBackstoryEntry?: string; addedItems: InventoryItem[]; removedItems: string[] }> => {
+    const processFinalResponse = useCallback(async (responseText: string) => {
+        const { state } = callbackDependencies.current;
         const tagRegex = /\[(img-prompt|char-img-prompt|update-backstory|scene-tag)\](.*?)\[\/\1\]/gs;
         const choiceRegex = /\[choice\](.*?)\[\/choice\]/g;
         const itemRegex = /\[(add-item|remove-item)\](.*?)\[\/\1\]/g;
+        const skillRegex = /\[update-skill\](.*?)\|(.*?)\[\/update-skill\]/g;
 
         let content = responseText;
-        const result: any = { addedItems: [], removedItems: [] };
+        const result: any = { addedItems: [], removedItems: [], skillUpdates: {} };
 
         content = content.replace(tagRegex, (_, tag, value) => {
             if (tag === 'img-prompt') result.imgPrompt = value.trim();
@@ -660,313 +1218,259 @@ const App: React.FC = () => {
             }
         });
         
-        content = content.replace(itemRegex, '').trim();
+        [...responseText.matchAll(skillRegex)].forEach(match => {
+            const [_, name, value] = match;
+            const numValue = parseInt(value.trim(), 10);
+            if(name && !isNaN(numValue)) {
+                result.skillUpdates[name.trim()] = numValue;
+            }
+        });
+        
+        content = content.replace(itemRegex, '').replace(skillRegex, '').trim();
         result.content = content;
 
-        if (result.imgPrompt && settings.generateSceneImages) {
-            result.imageUrl = await generateImage(result.imgPrompt, settings.artStyle, '16:9');
+        if (result.imgPrompt && state.settings.generateSceneImages) {
+            result.imageUrl = await generateImage(result.imgPrompt, state.settings.artStyle, '16:9');
         }
         
         return result;
-    }, [settings.generateSceneImages, settings.artStyle]);
+    }, []);
     
     const handleUpdateCharacterImage = useCallback(async (description: string) => {
-        setIsCharacterImageLoading(true);
-        if (!settings.generateCharacterPortraits) {
-            setCharacter(c => ({ ...c, description, portraits: [...c.portraits, { url: undefined, prompt: description }] }));
-            setIsCharacterImageLoading(false);
-            return;
+        const { state, dispatch } = callbackDependencies.current;
+        dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: true });
+        
+        let newPortrait: CharacterPortrait = { prompt: description };
+        if (state.settings.generateCharacterPortraits) {
+            const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
+            newPortrait.url = await generateImage(fullPrompt, state.settings.artStyle, '1:1');
         }
         
-        const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
-        try {
-            const url = await generateImage(fullPrompt, settings.artStyle, '1:1');
-            setCharacter(c => ({ ...c, description, portraits: [...c.portraits, { url, prompt: description }] }));
-        } finally {
-            setIsCharacterImageLoading(false);
-        }
-    }, [settings.generateCharacterPortraits, settings.artStyle]);
+        dispatch({ type: 'UPDATE_CHARACTER', payload: { description, portraits: [...state.character.portraits, newPortrait] } });
+        dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: false });
+    }, []);
 
-    const handlePlayerAction = useCallback(async (action: string, session?: Chat, isFirstTurn = false) => {
+    const handlePlayerAction = useCallback(async (action: string, session?: Chat) => {
+        const { state, chatSession, setPreviousGameState, dispatch } = callbackDependencies.current;
         const chatToUse = session || chatSession;
-        if (!chatToUse || !action.trim()) return;
 
-        if (!isFirstTurn) {
+        if (!chatToUse || !action.trim() || state.gamePhase === GamePhase.LOADING) return;
+
+        if (state.storyLog.length > 0) {
             try {
                 const history = await chatToUse.getHistory();
-                setPreviousGameState({ storyLog, fullWorldData, worldSummary, settings, character, inventory, chatHistory: history });
+                setPreviousGameState({ ...state, chatHistory: history });
             } catch (error) { console.error("Error capturing undo state:", error); }
         }
         
-        const playerEntry: StoryEntry = { type: 'player', content: action };
-        const aiEntry: StoryEntry = { type: 'ai', content: '', isStreaming: true, choices: [] };
-        
-        setStoryLog(log => [...log, playerEntry, aiEntry]);
-        setGamePhase(GamePhase.LOADING);
+        dispatch({ type: 'PLAYER_ACTION', payload: action });
         
         try {
-            const relevantLore = retrieveRelevantSnippets(action, fullWorldData);
+            const relevantLore = retrieveRelevantSnippets(action, state.worldInfo);
             const message = relevantLore ? `${action}\n\n[RELEVANT WORLD LORE]\n${relevantLore}\n[/RELEVANT WORLD LORE]` : action;
 
             const stream = await chatToUse.sendMessageStream({ message });
             let fullResponseText = '';
+            let streamBuffer = '';
+            
             for await (const chunk of stream) {
                 fullResponseText += chunk.text;
-                setStoryLog(log => log.map((entry, i) => i === log.length - 1 ? { ...entry, content: fullResponseText.replace(/\[.*?\]/g, '') } : entry));
+                streamBuffer += chunk.text;
+                
+                let lastSpace = streamBuffer.lastIndexOf(' ');
+                if (lastSpace !== -1) {
+                    const dispatchableText = streamBuffer.substring(0, lastSpace + 1);
+                    dispatch({ type: 'STREAM_CHUNK', payload: dispatchableText });
+                    streamBuffer = streamBuffer.substring(lastSpace + 1);
+                }
+            }
+            if(streamBuffer) {
+                dispatch({ type: 'STREAM_CHUNK', payload: streamBuffer });
             }
             
             const processed = await processFinalResponse(fullResponseText);
             
             let characterUpdates: Partial<Character> = {};
-            if (processed.newCharacterDescription && processed.newCharacterDescription !== character.description) {
+            if (processed.newCharacterDescription && processed.newCharacterDescription !== state.character.description) {
                 characterUpdates.description = processed.newCharacterDescription;
+                await handleUpdateCharacterImage(characterUpdates.description);
             }
             if (processed.newBackstoryEntry) {
-                characterUpdates.backstory = `${character.backstory}\n\n---\n\n${processed.newBackstoryEntry}`;
+                characterUpdates.backstory = `${state.character.backstory}\n\n---\n\n${processed.newBackstoryEntry}`;
             }
 
-            if (Object.keys(characterUpdates).length > 0) {
-                setCharacter(c => ({ ...c, ...characterUpdates }));
-                if (characterUpdates.description) {
-                    // Await this so the image is based on the *new* description
-                    await handleUpdateCharacterImage(characterUpdates.description);
-                }
-            }
-            
+            let newInventory = state.inventory;
             if (processed.addedItems.length > 0 || processed.removedItems.length > 0) {
-                setInventory(inv => [...inv.filter(item => !processed.removedItems.includes(item.name)), ...processed.addedItems]);
+                newInventory = [...state.inventory.filter(item => !processed.removedItems.includes(item.name)), ...processed.addedItems];
             }
             
             const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || '', imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, sceneTag: processed.sceneTag, isImageLoading: false, isStreaming: false };
-            setStoryLog(log => log.map((entry, i) => i === log.length - 1 ? finalAiEntry : entry));
+            dispatch({ type: 'FINISH_TURN', payload: { entry: finalAiEntry, character: characterUpdates, inventory: newInventory, skillUpdates: processed.skillUpdates }});
+
         } catch (e) {
             console.error(e);
-            setError('Failed to get a response from the Game Master. Please try again.');
-            setGamePhase(GamePhase.ERROR);
-        } finally {
-            setGamePhase(GamePhase.PLAYING);
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from the Game Master. Please try again.' });
         }
-    }, [chatSession, processFinalResponse, handleUpdateCharacterImage, fullWorldData, storyLog, settings, character, inventory]);
+    }, [processFinalResponse, handleUpdateCharacterImage]);
 
-    const handleStartGame = useCallback(async (worldData: string, characterInput: CharacterInput, initialPrompt: string, newSettings: Settings) => {
-        setGamePhase(GamePhase.LOADING);
-        clearGameState();
-        setHasSavedGame(false);
-
+    const handleStartGame = useCallback(async (worldInfo: WorldInfoEntry[], characterInput: CharacterInput, initialPrompt: string, newSettings: Settings) => {
+        dispatch({ type: 'SET_PHASE', payload: GamePhase.LOADING });
         try {
-            setLoadingMessage('Condensing world knowledge...');
-            const summary = worldData.length > 20000 ? await summarizeWorldData(worldData) : worldData;
-            setFullWorldData(worldData);
-            setWorldSummary(summary);
-            setSettings(newSettings);
-            activeChatSettings.current = newSettings; // Set initial active settings
+            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Condensing world knowledge...' });
+            const worldDataString = formatWorldInfoToString(worldInfo);
+            const summary = worldDataString.length > 10000 ? await summarizeWorldData(worldInfo) : worldDataString;
+            
+            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Fleshing out your character...' });
+            const generatedDetails = await generateCharacterDetails(characterInput);
+            
+            const finalCharacterInput = {
+                ...characterInput,
+                characterClass: generatedDetails.characterClass || characterInput.characterClass,
+                alignment: generatedDetails.alignment || characterInput.alignment,
+                backstory: generatedDetails.backstory || characterInput.backstory,
+                skills: generatedDetails.skills || characterInput.skills,
+            };
+
+            const parsedSkills: Record<string, number> = {};
+            if (finalCharacterInput.skills) {
+                finalCharacterInput.skills.split(',').forEach(pair => {
+                    const [key, value] = pair.split(':');
+                    if(key && value && !isNaN(parseInt(value.trim(), 10))) {
+                        parsedSkills[key.trim()] = parseInt(value.trim(), 10);
+                    }
+                });
+            }
 
             const newCharacter: Character = {
-                description: characterInput.description,
-                class: characterInput.characterClass || 'Adventurer',
-                alignment: characterInput.alignment || 'True Neutral',
-                backstory: characterInput.backstory || 'A mysterious past awaits.',
+                description: finalCharacterInput.description,
+                class: finalCharacterInput.characterClass || 'Adventurer',
+                alignment: finalCharacterInput.alignment || 'True Neutral',
+                backstory: finalCharacterInput.backstory || 'A mysterious past awaits.',
                 portraits: [],
+                skills: parsedSkills,
             };
-            setCharacter(newCharacter);
+
+            dispatch({ type: 'START_NEW_GAME', payload: { worldInfo, worldSummary: summary, character: newCharacter, settings: newSettings } });
+            activeChatSettings.current = newSettings;
             
-            setLoadingMessage('Generating character portrait...');
-            await handleUpdateCharacterImage(characterInput.description);
+            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Generating character portrait...' });
+            await handleUpdateCharacterImage(finalCharacterInput.description);
             
-            setLoadingMessage('The Game Master is preparing your story...');
+            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'The Game Master is preparing your story...' });
             const chat = initializeChat(summary, newCharacter, newSettings);
             if(!chat) throw new Error("Failed to initialize chat session.");
             setChatSession(chat);
             
-            await handlePlayerAction(initialPrompt, chat, true);
+            await handlePlayerAction(initialPrompt, chat);
         } catch (e) {
             console.error(e);
-            setError('Failed to start the game. Please check your API key and try again.');
-            setGamePhase(GamePhase.ERROR);
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to start the game. Please check your API key and try again.' });
         }
     }, [handlePlayerAction, handleUpdateCharacterImage]);
     
     const loadGameFromState = useCallback((savedState: SavedGameState | null) => {
         if (!savedState) return;
-        
-        const loadedSettings = savedState.settings;
-        // Backward compatibility for old saves with a single `imageGeneration` key
-        if (typeof (loadedSettings as any).imageGeneration === 'boolean') {
-            const oldSetting = (loadedSettings as any).imageGeneration;
-            loadedSettings.generateSceneImages = oldSetting;
-            loadedSettings.generateCharacterPortraits = oldSetting;
-            delete (loadedSettings as any).imageGeneration;
-        }
-
-        const finalSettings = {
-            generateSceneImages: true,
-            generateCharacterPortraits: true,
-            dynamicBackgrounds: true,
-            ...loadedSettings
-        };
-
-        const chat = initializeChat(savedState.worldSummary, savedState.character, finalSettings, savedState.chatHistory);
+        const chat = initializeChat(savedState.worldSummary, savedState.character, savedState.settings, savedState.chatHistory);
         if (!chat) {
-            setError("Failed to re-initialize chat from save. The save might be incompatible.");
-            setGamePhase(GamePhase.ERROR);
+            dispatch({ type: 'SET_ERROR', payload: "Failed to re-initialize chat from save." });
             return;
         }
         setChatSession(chat);
-        setStoryLog(savedState.storyLog);
-        setFullWorldData(savedState.fullWorldData);
-        setWorldSummary(savedState.worldSummary);
-        setSettings(finalSettings);
-        activeChatSettings.current = finalSettings; // Set active settings from save
-        setCharacter(savedState.character);
-        setInventory(savedState.inventory);
-        setGamePhase(GamePhase.PLAYING);
+        dispatch({ type: 'LOAD_GAME', payload: savedState });
+        activeChatSettings.current = savedState.settings;
     }, []);
 
     const handleSaveGame = useCallback(async () => {
-        if (!chatSession || storyLog.length === 0) return;
+        const { state, chatSession } = callbackDependencies.current;
+        if (!chatSession || state.storyLog.length === 0) return;
         try {
             const history = await chatSession.getHistory();
-            saveGameState({ storyLog, fullWorldData, worldSummary, settings, character, inventory, chatHistory: history });
-            setHasSavedGame(true);
+            saveGameState({ ...state, chatHistory: history });
+            dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
         } catch (error) {
             console.error("Failed to save game state:", error);
         }
-    }, [chatSession, storyLog, fullWorldData, worldSummary, settings, character, inventory]);
+    }, []);
     
     useEffect(() => {
-        // Autosave
-        const lastEntry = storyLog[storyLog.length - 1];
-        if (gamePhase === GamePhase.PLAYING && lastEntry?.type === 'ai' && !lastEntry.isStreaming) {
+        const lastEntry = state.storyLog[state.storyLog.length - 1];
+        if (state.gamePhase === GamePhase.PLAYING && lastEntry?.type === 'ai' && !lastEntry.isStreaming) {
             handleSaveGame();
         }
-    }, [storyLog, gamePhase, handleSaveGame]);
+    }, [state.storyLog, state.gamePhase, handleSaveGame]);
     
     const handleRegenerateResponse = useCallback(() => {
-        if (!previousGameState) return;
-        const lastPlayerAction = [...storyLog].reverse().find(e => e.type === 'player')?.content;
+        if (!previousGameState || state.gamePhase === GamePhase.LOADING) return;
+        const lastPlayerAction = [...previousGameState.storyLog].reverse().find(e => e.type === 'player');
         if (!lastPlayerAction) return;
         
         loadGameFromState(previousGameState);
-        // Using a timeout to ensure state is updated before re-running the action
-        setTimeout(() => handlePlayerAction(lastPlayerAction), 50);
-    }, [storyLog, previousGameState, loadGameFromState, handlePlayerAction]);
+        setTimeout(() => handlePlayerAction(lastPlayerAction.content), 50);
+    }, [previousGameState, state.gamePhase, loadGameFromState, handlePlayerAction]);
 
     const latestSceneTag = useMemo(() => {
-        return [...storyLog].reverse().find(e => e.type === 'ai' && e.sceneTag)?.sceneTag;
-    }, [storyLog]);
+        return [...state.storyLog].reverse().find(e => e.type === 'ai' && e.sceneTag)?.sceneTag;
+    }, [state.storyLog]);
+
+    const handleUpdateSceneImage = useCallback(async (index: number, prompt: string) => {
+        const { state } = callbackDependencies.current;
+        dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, isLoading: true }});
+        const newImageUrl = await generateImage(prompt, state.settings.artStyle, '16:9');
+        dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, imageUrl: newImageUrl, isLoading: false }});
+    }, []);
     
-    const logEndRef = useRef<HTMLDivElement>(null);
-    useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [storyLog]);
-
-    const GameUI = () => (
-        <main className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 h-[85vh]">
-            <StatusSidebar 
-                character={character}
-                inventory={inventory}
-                isImageLoading={isCharacterImageLoading}
-                onRegenerate={() => handleUpdateCharacterImage(character.description)}
-                apiStatus={apiStatus}
-                settings={settings}
-            />
-            <div className="flex-grow h-full flex flex-col bg-slate-800 p-4 sm:p-6 rounded-xl shadow-2xl border border-slate-700">
-                <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar">
-                    {storyLog.map((entry, index) =>
-                      entry.type === 'ai' ? (
-                        <StoryBlock 
-                          key={index} entry={entry} settings={settings}
-                          onRegenerateResponse={handleRegenerateResponse}
-                          isLastEntry={index === storyLog.map(e => e.type).lastIndexOf('ai')}
-                          canRegenerate={!!previousGameState}
-                          onRegenerateImage={async () => {
-                              if (!entry.imgPrompt) return;
-                              setStoryLog(log => log.map((e, i) => i === index ? {...e, isImageLoading: true} : e));
-                              const newImageUrl = await generateImage(entry.imgPrompt, settings.artStyle, '16:9');
-                              setStoryLog(log => log.map((e, i) => i === index ? {...e, imageUrl: newImageUrl, isImageLoading: false} : e));
-                          }}
-                        />
-                      ) : (
-                        <div key={index} className="mb-8 animate-fade-in flex justify-end">
-                            <div className="max-w-[80%] bg-indigo-600/40 p-4 rounded-lg"><p className="text-indigo-100 italic">{entry.content}</p></div>
-                        </div>
-                      )
-                    )}
-                    {error && <div className="text-red-400 p-4 bg-red-900/50 rounded-md">{error}</div>}
-                    <div ref={logEndRef} />
-                </div>
-                <div className="flex-shrink-0 mt-auto pt-4 border-t border-slate-700">
-                    <ChoiceAndInputPanel />
-                </div>
-            </div>
-        </main>
-    );
-
-    const ChoiceAndInputPanel = () => {
-        const [playerInput, setPlayerInput] = useState('');
-        const choices = storyLog[storyLog.length - 1]?.choices || [];
-
-        useEffect(() => {
-            const handleKeyPress = (e: KeyboardEvent) => {
-                const keyNum = parseInt(e.key);
-                if (keyNum >= 1 && keyNum <= choices.length) {
-                    handlePlayerAction(choices[keyNum - 1]);
-                }
-            };
-            window.addEventListener('keydown', handleKeyPress);
-            return () => window.removeEventListener('keydown', handleKeyPress);
-        }, [choices, handlePlayerAction]);
-
-        const handleSubmit = (e: React.FormEvent) => {
-            e.preventDefault();
-            if (playerInput.trim()) {
-                handlePlayerAction(playerInput);
-                setPlayerInput('');
-            }
-        };
-
-        return (
-            <>
-                {choices.length > 0 &&
-                    <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {choices.map((choice, i) => <button key={i} onClick={() => handlePlayerAction(choice)} className="text-left bg-slate-700/80 p-3 rounded-lg hover:bg-indigo-600 transition-all"><span className="text-xs font-mono bg-slate-800 rounded px-1.5 py-0.5 mr-2">{i+1}</span>{choice}</button>)}
-                    </div>
-                }
-                <div className="flex items-center gap-2">
-                    <form onSubmit={handleSubmit} className="flex-grow flex items-center gap-2">
-                        <input type="text" value={playerInput} onChange={e => setPlayerInput(e.target.value)} placeholder="What do you do?" disabled={gamePhase !== GamePhase.PLAYING} className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-3 disabled:bg-slate-700" autoFocus />
-                        <button type="submit" disabled={gamePhase !== GamePhase.PLAYING || !playerInput.trim()} className="bg-indigo-600 font-bold py-3 px-5 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500">Send</button>
-                    </form>
-                    <button onClick={() => previousGameState && loadGameFromState(previousGameState)} disabled={!previousGameState} title="Undo" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 15l-3-3m0 0l3-3m-3 3h8a5 5 0 000-10H9" /></svg>
-                    </button>
-                     <button onClick={() => setIsSettingsModalOpen(true)} title="Settings" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    </button>
-                    <button onClick={() => { clearGameState(); window.location.reload(); }} title="Restart Game" className="p-3 bg-red-800/80 rounded-lg hover:bg-red-700">
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    </button>
-                </div>
-            </>
-        );
-    };
-    
-    const backgroundUrl = useMemo(() => {
-        if (!settings.dynamicBackgrounds || !latestSceneTag) return '';
-        // Using an external service for generic background images
-        return `https://source.unsplash.com/1600x900/?${latestSceneTag}`;
-    }, [latestSceneTag, settings.dynamicBackgrounds]);
+    const handleNewGame = useCallback(() => {
+        if (window.confirm('Are you sure you want to start a new game? All current progress will be lost.')) {
+            clearGameState();
+            window.location.reload();
+        }
+    }, []);
 
     const renderContent = () => {
-        switch (gamePhase) {
+        switch (state.gamePhase) {
             case GamePhase.SETUP:
-                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={hasSavedGame} />;
+                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={state.hasSavedGame} />;
             case GamePhase.LOADING:
-                 return <div className="flex items-center justify-center h-[85vh]"><div className="flex items-center space-x-2"><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce"></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.15s'}}></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.3s'}}></div><span className="text-slate-400 font-serif">{loadingMessage}</span></div></div>;
+                 if (state.storyLog.length > 0) {
+                     return <GameUI 
+                        state={state}
+                        previousGameState={previousGameState}
+                        onPlayerAction={handlePlayerAction}
+                        onRegenerateResponse={handleRegenerateResponse}
+                        onUpdateCharacterImage={handleUpdateCharacterImage}
+                        onUpdateSceneImage={handleUpdateSceneImage}
+                        onUndo={() => previousGameState && loadGameFromState(previousGameState)}
+                        onOpenSettings={() => setIsSettingsModalOpen(true)}
+                        onOpenLog={() => setIsLogModalOpen(true)}
+                        onNewGame={handleNewGame}
+                        onOpenWorldKnowledge={() => setIsWorldModalOpen(true)}
+                     />;
+                 }
+                 return <div className="flex items-center justify-center h-[85vh]"><div className="flex items-center space-x-2"><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce"></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.15s'}}></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.3s'}}></div><span className="text-slate-400 font-serif">{state.loadingMessage}</span></div></div>;
             case GamePhase.PLAYING:
-                 return <GameUI />;
+                 return <GameUI 
+                    state={state}
+                    previousGameState={previousGameState}
+                    onPlayerAction={handlePlayerAction}
+                    onRegenerateResponse={handleRegenerateResponse}
+                    onUpdateCharacterImage={handleUpdateCharacterImage}
+                    onUpdateSceneImage={handleUpdateSceneImage}
+                    onUndo={() => previousGameState && loadGameFromState(previousGameState)}
+                    onOpenSettings={() => setIsSettingsModalOpen(true)}
+                    onOpenLog={() => setIsLogModalOpen(true)}
+                    onNewGame={handleNewGame}
+                    onOpenWorldKnowledge={() => setIsWorldModalOpen(true)}
+                 />;
             case GamePhase.ERROR:
-                 return <div className="text-red-400 p-4 bg-red-900/50 rounded-md"><h2>An Error Occurred</h2><p>{error}</p><button onClick={() => { clearGameState(); window.location.reload(); }} className="mt-4 bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">Start Over</button></div>;
+                 return <div className="text-red-400 p-4 bg-red-900/50 rounded-md"><h2>An Error Occurred</h2><p>{state.error}</p><button onClick={() => { clearGameState(); window.location.reload(); }} className="mt-4 bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">Start Over</button></div>;
         }
     }
+    
+    const backgroundUrl = useMemo(() => {
+        if (!state.settings.dynamicBackgrounds || !latestSceneTag) return '';
+        return `https://source.unsplash.com/1600x900/?${latestSceneTag}`;
+    }, [latestSceneTag, state.settings.dynamicBackgrounds]);
+
 
     return (
         <div className="min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8">
@@ -974,7 +1478,9 @@ const App: React.FC = () => {
             <header className="text-center w-full max-w-7xl mx-auto mb-6"><h1 className="text-4xl sm:text-5xl font-bold text-indigo-400 font-serif">CYOA Game Master</h1></header>
             
             {renderContent()}
-            <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={settings} onSettingsChange={setSettings} />
+            <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={state.settings} onSettingsChange={(newSettings) => dispatch({ type: 'UPDATE_SETTINGS', payload: newSettings })} />
+            <WorldKnowledgeModal isOpen={isWorldModalOpen} onClose={() => setIsWorldModalOpen(false)} worldInfo={state.worldInfo} />
+            <GameLogModal isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)} storyLog={state.storyLog} />
         </div>
     );
 };
