@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI, Chat, Content, GenerateContentResponse } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
@@ -700,8 +700,8 @@ const App: React.FC = () => {
         
         const playerEntry: StoryEntry = { type: 'player', content: action };
         const aiEntry: StoryEntry = { type: 'ai', content: '', isStreaming: true, choices: [] };
-        setStoryLog(log => isFirstTurn ? [aiEntry] : [...log, playerEntry, aiEntry]);
-        if(isFirstTurn) setStoryLog([playerEntry, aiEntry]);
+        
+        setStoryLog(log => [...log, playerEntry, aiEntry]);
         setGamePhase(GamePhase.LOADING);
         
         try {
@@ -854,6 +854,9 @@ const App: React.FC = () => {
     const latestSceneTag = useMemo(() => {
         return [...storyLog].reverse().find(e => e.type === 'ai' && e.sceneTag)?.sceneTag;
     }, [storyLog]);
+    
+    const logEndRef = useRef<HTMLDivElement>(null);
+    useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [storyLog]);
 
     const GameUI = () => (
         <main className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 h-[85vh]">
@@ -866,7 +869,7 @@ const App: React.FC = () => {
                 settings={settings}
             />
             <div className="flex-grow h-full flex flex-col bg-slate-800 p-4 sm:p-6 rounded-xl shadow-2xl border border-slate-700">
-                <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar" ref={logEndRef}>
+                <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar">
                     {storyLog.map((entry, index) =>
                       entry.type === 'ai' ? (
                         <StoryBlock 
@@ -896,9 +899,6 @@ const App: React.FC = () => {
             </div>
         </main>
     );
-    
-    const logEndRef = useRef<HTMLDivElement>(null);
-    useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [storyLog]);
 
     const ChoiceAndInputPanel = () => {
         const [playerInput, setPlayerInput] = useState('');
