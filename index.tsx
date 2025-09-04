@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useMemo, useRef, useReducer } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI, Chat, Content, GenerateContentResponse, Type } from "@google/genai";
@@ -111,7 +112,7 @@ const saveGameState = (state: SavedGameState): void => {
   try {
     const stateString = JSON.stringify(state);
     localStorage.setItem(SAVE_GAME_KEY, stateString);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to save game state:", error);
   }
 };
@@ -134,7 +135,7 @@ const loadGameState = (): SavedGameState | null => {
     }
 
     return state as SavedGameState;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to load game state:", error);
     localStorage.removeItem(SAVE_GAME_KEY); // Clear corrupted data
     return null;
@@ -144,7 +145,7 @@ const loadGameState = (): SavedGameState | null => {
 const clearGameState = (): void => {
   try {
     localStorage.removeItem(SAVE_GAME_KEY);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to clear game state:", error);
   }
 };
@@ -159,12 +160,40 @@ if (API_KEY) {
     ai = new GoogleGenAI({ apiKey: API_KEY });
 }
 
+// Helper function for API calls with exponential backoff
+// FIX: Added a trailing comma inside the generic <T,> to prevent the TSX parser from interpreting it as a JSX tag.
+const withRetry = async <T,>(apiCall: () => Promise<T>, maxRetries = 3, initialDelay = 1000): Promise<T> => {
+  let attempt = 1;
+  let delay = initialDelay;
+
+  while (attempt <= maxRetries) {
+    try {
+      return await apiCall();
+    } catch (error: any) {
+      const isRateLimitError = error.toString().includes('429') || error.toString().toLowerCase().includes('rate limit') || error.toString().toLowerCase().includes('resource_exhausted');
+
+      if (isRateLimitError && attempt < maxRetries) {
+        console.warn(`Rate limit hit. Retrying in ${delay}ms... (Attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff
+      } else {
+        // For non-retryable errors or if it's the last attempt
+        throw error;
+      }
+      attempt++;
+    }
+  }
+  // This part should not be reachable due to the throw in the catch block, but it's good for type safety.
+  throw new Error('Exceeded maximum retry attempts');
+};
+
+
 const verifyApiKey = async (): Promise<boolean> => {
     if (!ai) return false;
     try {
-        await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'test' });
+        await withRetry(() => ai!.models.generateContent({ model: 'gemini-2.5-flash', contents: 'test' }));
         return true;
-    } catch (e) {
+    } catch (e: any) {
         console.error("API Key validation failed:", e);
         return false;
     }
@@ -186,9 +215,9 @@ const summarizeWorldData = async (worldInfo: WorldInfoEntry[]): Promise<string> 
 ${worldData}
 --- WORLD LORE END ---`;
     try {
-        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: summarizationPrompt });
+        const response = await withRetry(() => ai!.models.generateContent({ model: 'gemini-2.5-flash', contents: summarizationPrompt }));
         return response.text.trim();
-    } catch (error) {
+    } catch (error: any) {
         console.error("Failed to summarize world data:", error);
         return "Error summarizing world data.";
     }
@@ -249,14 +278,14 @@ const generateImage = async (prompt: string, artStyle: string, aspectRatio: '16:
   if (!ai) return undefined;
   try {
     const fullPrompt = `${artStyle}, ${prompt}`;
-    const response = await ai.models.generateImages({
+    const response = await withRetry(() => ai!.models.generateImages({
       model: 'imagen-4.0-generate-001',
       prompt: fullPrompt,
       config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio },
-    });
+    }));
     const base64ImageBytes = response.generatedImages[0]?.image.imageBytes;
     return base64ImageBytes ? `data:image/jpeg;base64,${base64ImageBytes}` : undefined;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating image:", error);
     return undefined;
   }
@@ -266,9 +295,9 @@ const enhanceWorldEntry = async (text: string): Promise<string> => {
     if (!ai || !text.trim()) return text;
     const prompt = `You are a creative writing assistant specializing in world-building. Take the following piece of lore and enrich it with compelling details, ensuring it remains consistent with the original themes. Preserve the user's core concepts but expand upon them. Output ONLY the enhanced text.\n\n--- USER LORE ---\n${text}`;
     try {
-        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+        const response = await withRetry(() => ai!.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt }));
         return response.text.trim() || text;
-    } catch (error) {
+    } catch (error: any) {
         console.error(`Failed to enhance world entry:`, error);
         return text;
     }
@@ -276,16 +305,21 @@ const enhanceWorldEntry = async (text: string): Promise<string> => {
 
 const structureWorldDataWithAI = async (text: string): Promise<WorldInfoEntry[]> => {
     if (!ai || !text.trim()) return [];
-    const prompt = `You are a world-building assistant. Read the following unstructured lore document and organize it into a structured JSON format. Identify logical categories like "Locations", "Factions", "Characters", "History", "Magic System", etc., and group the relevant information under those keys.
+    const prompt = `You are a master loremaster and world-building analyst. Your task is to meticulously parse the following unstructured lore document and transform it into a well-organized, structured format.
+
+**Instructions:**
+1.  **Identify Core Categories:** Read the entire document to understand its scope. Identify major categories such as "Geography", "Factions & Groups", "Key Characters", "Timeline & History", "Magic & Technology", "Culture & Society", and "Bestiary". Use these categories or create more specific ones if the text supports it (e.g., "The Kingdom of Eldoria" instead of just "Factions").
+2.  **Create an Overview:** If the document provides a general summary or introduction, place it under a key named "Overview". If not, create a brief one yourself to capture the essence of the world.
+3.  **Preserve Detail:** Do not summarize aggressively. The goal is to organize, not to lose information. Preserve the original text as much as possible within the appropriate categories.
+4.  **Handle Ambiguity:** If a piece of information could fit into multiple categories, place it in the most relevant one.
+5.  **Output Format:** Your final output MUST be a JSON array of objects. Each object must have a "key" (the category name as a string) and a "content" (the corresponding lore as a string).
 
 --- LORE DOCUMENT ---
 ${text}
---- END LORE DOCUMENT ---
-
-Output a JSON array where each object has a "key" (the category name) and a "content" (the lore for that category).`;
+--- END LORE DOCUMENT ---`;
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry(() => ai!.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
@@ -302,7 +336,7 @@ Output a JSON array where each object has a "key" (the category name) and a "con
                     },
                 },
             },
-        });
+        }));
 
         let jsonStr = response.text.trim();
         if (jsonStr.startsWith('```json')) {
@@ -310,10 +344,10 @@ Output a JSON array where each object has a "key" (the category name) and a "con
         }
         return JSON.parse(jsonStr) as WorldInfoEntry[];
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Failed to structure world data with AI:", error);
         // Fallback: return the whole text as a single entry
-        return [{ key: "Imported Lore", content: text }];
+        return [{ key: "Imported Lore", content: text, isUnstructured: true }];
     }
 };
 
@@ -337,7 +371,7 @@ Return a JSON object with the keys "characterClass", "alignment", "backstory", a
 `;
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry(() => ai!.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
@@ -353,7 +387,7 @@ Return a JSON object with the keys "characterClass", "alignment", "backstory", a
                     required: ["characterClass", "alignment", "backstory", "skills"],
                 },
             },
-        });
+        }));
         
         let jsonStr = response.text.trim();
         // Clean potential markdown formatting
@@ -369,11 +403,66 @@ Return a JSON object with the keys "characterClass", "alignment", "backstory", a
             skills: details.skills,
         };
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Failed to generate character details:", error);
         return {}; // Return empty object on failure to avoid crashing
     }
 };
+
+const generateCharacterFlavor = async (character: Omit<Character, 'portraits'>): Promise<{ class: string, quirk: string }> => {
+    if (!ai) return { class: character.class, quirk: '' };
+
+    const prompt = `You are a creative assistant for a fantasy RPG. Based on the character details, generate a more evocative class name and a unique, brief character quirk.
+
+**Character Details:**
+- **Appearance:** ${character.description}
+- **Class:** ${character.class}
+- **Alignment:** ${character.alignment}
+- **Backstory:** ${character.backstory}
+- **Skills:** ${JSON.stringify(character.skills)}
+
+**Instructions:**
+1.  **Evocative Class:** Brainstorm a more descriptive and flavorful title for the character's class. For example, a "Rogue" could become a "Shadow-foot Cutpurse" or a "Fighter" could be a "Veteran Sellsword". The new class name should be concise (2-3 words).
+2.  **Unique Quirk:** Create a short, memorable character quirk (a habit, a fear, a small belief). The quirk should be a single sentence. Example: "Always checks for an exit route upon entering a new room," or "Has a habit of flipping a silver coin."
+3.  **Output:** Return a JSON object with two keys: "className" and "quirk".
+
+Example Output:
+{
+  "className": "Grave-touched Sorcerer",
+  "quirk": "Tends to talk to small, inanimate objects when stressed."
+}
+`;
+
+    try {
+        const response = await withRetry(() => ai!.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        className: { type: Type.STRING },
+                        quirk: { type: Type.STRING },
+                    },
+                    required: ["className", "quirk"],
+                },
+            },
+        }));
+
+        let jsonStr = response.text.trim();
+        if (jsonStr.startsWith('```json')) {
+          jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
+        }
+        const details = JSON.parse(jsonStr);
+        return { class: details.className, quirk: details.quirk };
+
+    } catch (error: any) {
+        console.error("Failed to generate character flavor:", error);
+        return { class: character.class, quirk: '' }; // Return original class on failure
+    }
+};
+
 
 const retrieveRelevantSnippets = (query: string, worldInfo: WorldInfoEntry[], count = 3): string => {
     const corpus = formatWorldInfoToString(worldInfo);
@@ -423,7 +512,6 @@ const SetupScreen: React.FC<{
   const [initialPrompt, setInitialPrompt] = useState('');
   const [isEnhancing, setIsEnhancing] = useState<number | null>(null);
   const [isStructuringEntry, setIsStructuringEntry] = useState<number | null>(null);
-  const [isSummarizing, setIsSummarizing] = useState(false);
   const [isFileLoading, setIsFileLoading] = useState(false);
   const [isWorldToolsModalOpen, setIsWorldToolsModalOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>({
@@ -437,7 +525,7 @@ const SetupScreen: React.FC<{
   const worldFileInputRef = useRef<HTMLInputElement>(null);
 
   const isWorldDataValid = useMemo(() => worldInfo.some(entry => entry.key.trim() && entry.content.trim()), [worldInfo]);
-  const isBusy = isSummarizing || isFileLoading || isStructuringEntry !== null;
+  const isBusy = isFileLoading || isStructuringEntry !== null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -467,27 +555,28 @@ const SetupScreen: React.FC<{
         } else {
             alert("AI structuring failed to produce categories.");
         }
-    } catch (e) {
+    } catch (e: any) {
         alert("An error occurred during AI structuring.");
     } finally {
         setIsStructuringEntry(null);
     }
   }
   
-  const processLoadedWorld = (entries: WorldInfoEntry[]) => {
+  const processLoadedWorld = useCallback(async (entries: WorldInfoEntry[]) => {
       setWorldInfo(entries);
       setOpenWorldEntry(entries.length > 0 ? 0 : null);
       const fullText = formatWorldInfoToString(entries);
       if (fullText.length > 10000) {
-          setIsSummarizing(true);
-          summarizeWorldData(entries)
-              .then(summary => setWorldSummary(summary))
-              .catch(() => setWorldSummary("Failed to generate summary."))
-              .finally(() => setIsSummarizing(false));
+          try {
+            const summary = await summarizeWorldData(entries);
+            setWorldSummary(summary);
+          } catch {
+             setWorldSummary("Failed to generate summary.")
+          }
       } else {
           setWorldSummary(null);
       }
-  };
+  }, []);
 
   const addWorldInfoEntry = () => {
     setWorldInfo(prev => [...prev, { key: '', content: '' }]);
@@ -507,56 +596,53 @@ const SetupScreen: React.FC<{
     if (openWorldEntry === index) setOpenWorldEntry(null);
   };
   
-  const handleLoadWorldFromFile = async (file: File) => {
+  const handleLoadWorldFromFile = useCallback(async (file: File) => {
     if (!file) return;
     setIsFileLoading(true);
-    const reader = new FileReader();
-    reader.onerror = () => {
-        alert('Error reading file.');
+    try {
+        const content: string = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target?.result as string);
+            reader.onerror = () => reject(new Error('Error reading file.'));
+            reader.readAsText(file);
+        });
+
+        const newKey = file.name.replace(/\.(txt|md|json)$/, '');
+        if (file.name.endsWith('.json')) {
+            try {
+                const jsonData = JSON.parse(content);
+                if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
+                    await processLoadedWorld(jsonData);
+                } else { alert('Invalid JSON structure for world data.'); }
+            } catch (err) { alert('Failed to parse JSON file.'); }
+        } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
+            const headerRegex = /^(#{1,6})\s+(.*)$/gm;
+            const matches = [...content.matchAll(headerRegex)];
+
+            if (matches.length > 0) {
+                const structuredEntries: WorldInfoEntry[] = [];
+                for (let i = 0; i < matches.length; i++) {
+                    const key = matches[i][2].trim();
+                    const startIndex = matches[i].index! + matches[i][0].length;
+                    const endIndex = i + 1 < matches.length ? matches[i + 1].index! : content.length;
+                    const entryContent = content.substring(startIndex, endIndex).trim();
+                    if (key && entryContent) {
+                        structuredEntries.push({ key, content: entryContent });
+                    }
+                }
+                await processLoadedWorld(structuredEntries);
+            } else {
+                await processLoadedWorld([{ key: newKey, content, isUnstructured: true }]);
+            }
+        } else {
+            alert('Please select a .json, .txt, or .md file.');
+        }
+    } catch (e: any) {
+        alert((e as Error).message);
+    } finally {
         setIsFileLoading(false);
     }
-    reader.onload = async (e) => {
-        try {
-            const content = e.target?.result as string;
-            const newKey = file.name.replace(/\.(txt|md|json)$/, '');
-
-            if (file.name.endsWith('.json')) {
-                try {
-                    const jsonData = JSON.parse(content);
-                    if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
-                        processLoadedWorld(jsonData);
-                    } else { alert('Invalid JSON structure for world data.'); }
-                } catch (err) { alert('Failed to parse JSON file.'); }
-            } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
-                // Attempt to parse via Markdown headers first
-                const headerRegex = /^(#{1,6})\s+(.*)$/gm;
-                const matches = [...content.matchAll(headerRegex)];
-
-                if (matches.length > 0) {
-                    const structuredEntries: WorldInfoEntry[] = [];
-                    for (let i = 0; i < matches.length; i++) {
-                        const key = matches[i][2].trim();
-                        const startIndex = matches[i].index! + matches[i][0].length;
-                        const endIndex = i + 1 < matches.length ? matches[i + 1].index! : content.length;
-                        const entryContent = content.substring(startIndex, endIndex).trim();
-                        if (key && entryContent) {
-                            structuredEntries.push({ key, content: entryContent });
-                        }
-                    }
-                    processLoadedWorld(structuredEntries);
-                } else {
-                    // Load as a single, unstructured entry, giving the user the option to structure it later.
-                    processLoadedWorld([{ key: newKey, content, isUnstructured: true }]);
-                }
-            } else {
-                alert('Please select a .json, .txt, or .md file.');
-            }
-        } finally {
-             setIsFileLoading(false);
-        }
-    };
-    reader.readAsText(file);
-  };
+  }, [processLoadedWorld]);
 
 
   const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -592,8 +678,7 @@ const SetupScreen: React.FC<{
                         <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-sky-300 hover:text-sky-200">Load File</button>
                     </div>
                 </div>
-                {isFileLoading && <ProgressBar text="Reading world file..." />}
-                {isSummarizing && <ProgressBar text="AI is creating a world summary..." />}
+                {isFileLoading && <ProgressBar text="Processing world file..." />}
                 <div className={`space-y-2 bg-slate-900/50 border border-slate-700 rounded-lg p-2 ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}>
                     {worldInfo.map((entry, index) => (
                         <div key={index} className="bg-slate-800/70 rounded">
@@ -849,8 +934,8 @@ const WorldKnowledgeModal: React.FC<{
         if (!query.trim()) return text;
         try {
             const regex = new RegExp(`(${query})`, 'gi');
-            return text.replace(regex, '<mark class="bg-yellow-400 text-black px-1 rounded">$1</mark>');
-        } catch (e) {
+            return text.replace(regex, '<mark className="bg-yellow-400 text-black px-1 rounded">$1</mark>');
+        } catch (e: any) {
             // Invalid regex from user input, just return original text
             return text;
         }
@@ -959,7 +1044,7 @@ const WorldDataToolsModal: React.FC<{
                             
                             setProcessedData(finalEntries);
                             return; // Successfully handled the special case, we're done.
-                        } catch (parseError) {
+                        } catch (parseError: any) {
                             console.warn("Could not parse as mixed content file, proceeding with normal logic.", parseError);
                         }
                     }
@@ -978,7 +1063,7 @@ const WorldDataToolsModal: React.FC<{
                         } else {
                             throw new Error('Invalid JSON structure.');
                         }
-                    } catch (e) {
+                    } catch (e: any) {
                         throw new Error(`Failed to parse ${file.name}: ${(e as Error).message}`);
                     }
                 } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
@@ -995,7 +1080,7 @@ const WorldDataToolsModal: React.FC<{
                 }
             }
             setProcessedData(allEntries);
-        } catch (e) {
+        } catch (e: any) {
             setError((e as Error).message);
         } finally {
             setIsProcessing(false);
@@ -1460,7 +1545,7 @@ const App: React.FC = () => {
                     if (!newChat) throw new Error("Failed to re-initialize chat session.");
                     setChatSession(newChat);
                     activeChatSettings.current = { ...state.settings };
-                } catch (e) {
+                } catch (e: any) {
                     console.error(e);
                     dispatch({ type: 'SET_ERROR', payload: "Failed to update settings. Please try again." });
                     dispatch({ type: 'UPDATE_SETTINGS', payload: activeChatSettings.current });
@@ -1472,7 +1557,20 @@ const App: React.FC = () => {
         }
     }, [state.settings, state.gamePhase, chatSession, state.worldSummary, state.character]);
 
-    const processFinalResponse = async (responseText: string) => {
+    const handleUpdateCharacterImage = useCallback(async (description: string) => {
+        dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: true });
+        
+        let newPortrait: CharacterPortrait = { prompt: description };
+        if (state.settings.generateCharacterPortraits) {
+            const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
+            newPortrait.url = await generateImage(fullPrompt, state.settings.artStyle, '1:1');
+        }
+        
+        dispatch({ type: 'UPDATE_CHARACTER', payload: { description, portraits: [...state.character.portraits, newPortrait] } });
+        dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: false });
+    }, [state.settings.generateCharacterPortraits, state.settings.artStyle, state.character.portraits]);
+
+    const processFinalResponse = useCallback(async (responseText: string) => {
         const tagRegex = /\[(img-prompt|char-img-prompt|update-backstory|background-prompt)\](.*?)\[\/\1\]/gs;
         const choiceRegex = /\[choice\](.*?)\[\/choice\]/g;
         const itemRegex = /\[(add-item|remove-item)\](.*?)\[\/\1\]/g;
@@ -1510,8 +1608,6 @@ const App: React.FC = () => {
             }
         });
         
-        // We leave skill-check and combat tags in the content for the log to display
-        // We only remove other functional tags
         content = content.replace(itemRegex, '').replace(skillRegex, '').trim();
         result.content = content;
 
@@ -1520,22 +1616,9 @@ const App: React.FC = () => {
         }
         
         return result;
-    };
+    }, [state.settings.generateSceneImages, state.settings.artStyle]);
     
-    const handleUpdateCharacterImage = async (description: string) => {
-        dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: true });
-        
-        let newPortrait: CharacterPortrait = { prompt: description };
-        if (state.settings.generateCharacterPortraits) {
-            const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
-            newPortrait.url = await generateImage(fullPrompt, state.settings.artStyle, '1:1');
-        }
-        
-        dispatch({ type: 'UPDATE_CHARACTER', payload: { description, portraits: [...state.character.portraits, newPortrait] } });
-        dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: false });
-    };
-
-    const handlePlayerAction = async (action: string, session?: Chat) => {
+    const handlePlayerAction = useCallback(async (action: string, session?: Chat) => {
         const chatToUse = session || chatSession;
 
         if (!chatToUse || !action.trim() || state.gamePhase === GamePhase.LOADING) return;
@@ -1544,7 +1627,7 @@ const App: React.FC = () => {
             try {
                 const history = await chatToUse.getHistory();
                 setPreviousGameState({ ...state, chatHistory: history });
-            } catch (error) { console.error("Error capturing undo state:", error); }
+            } catch (error: any) { console.error("Error capturing undo state:", error); }
         }
         
         dispatch({ type: 'PLAYER_ACTION', payload: action });
@@ -1553,7 +1636,7 @@ const App: React.FC = () => {
             const relevantLore = retrieveRelevantSnippets(action, state.worldInfo);
             const message = relevantLore ? `${action}\n\n[RELEVANT WORLD LORE]\n${relevantLore}\n[/RELEVANT WORLD LORE]` : action;
 
-            const stream = await chatToUse.sendMessageStream({ message });
+            const stream = await withRetry(() => chatToUse.sendMessageStream({ message }));
             let fullResponseText = '';
             let streamBuffer = '';
             
@@ -1591,13 +1674,15 @@ const App: React.FC = () => {
             const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || '', imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, backgroundPrompt: processed.backgroundPrompt, isImageLoading: false, isStreaming: false };
             dispatch({ type: 'FINISH_TURN', payload: { entry: finalAiEntry, character: characterUpdates, inventory: newInventory, skillUpdates: processed.skillUpdates }});
 
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
             dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from the Game Master. Please try again.' });
         }
-    };
+    }, [chatSession, state, processFinalResponse, handleUpdateCharacterImage]);
 
-    const handleStartGame = (worldInfo: WorldInfoEntry[], worldSummary: string | null, characterInput: CharacterInput, newSettings: Settings) => {
+    const handleStartGame = useCallback(async (worldInfo: WorldInfoEntry[], worldSummary: string | null, characterInput: CharacterInput, initialPrompt: string, settings: Settings) => {
+        dispatch({ type: 'SET_PHASE', payload: GamePhase.LOADING });
+        dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Crafting your character...' });
         try {
             const summary = worldSummary || formatWorldInfoToString(worldInfo);
             savedTurnIndex.current = null;
@@ -1605,9 +1690,14 @@ const App: React.FC = () => {
             const initialParsedSkills: Record<string, number> = {};
             if (characterInput.skills) {
                 characterInput.skills.split(',').forEach(pair => {
-                    const [key, value] = pair.split(':');
-                    if (key && value && !isNaN(parseInt(value.trim(), 10))) {
-                        initialParsedSkills[key.trim()] = parseInt(value.trim(), 10);
+                    const parts = pair.split(':');
+                    const key = parts[0]?.trim();
+                    const valueStr = parts[1]?.trim();
+                    if (key && valueStr) {
+                        const valueNum = parseInt(valueStr, 10);
+                        if (!isNaN(valueNum)) {
+                            initialParsedSkills[key] = valueNum;
+                        }
                     }
                 });
             }
@@ -1621,25 +1711,20 @@ const App: React.FC = () => {
                 skills: initialParsedSkills,
             };
     
-            // This action now sets the game phase to PLAYING, which renders the game UI immediately.
-            dispatch({ type: 'START_NEW_GAME', payload: { worldInfo, worldSummary: summary, character: initialCharacter, settings: newSettings } });
-            activeChatSettings.current = newSettings;
+            dispatch({ type: 'START_NEW_GAME', payload: { worldInfo, worldSummary: summary, character: initialCharacter, settings } });
+            activeChatSettings.current = settings;
     
-            const chat = initializeChat(summary, initialCharacter, newSettings);
+            const chat = initializeChat(summary, initialCharacter, settings);
             if (!chat) throw new Error("Failed to initialize chat session.");
             setChatSession(chat);
     
-            // This starts the first turn, showing a loading state within the game UI.
-            handlePlayerAction("Let's begin.", chat);
+            handlePlayerAction(initialPrompt, chat);
     
-            // Run character enhancement and portrait generation in the background.
             (async () => {
-                // Wait a moment for the main thread to be free to render the UI transition.
                 await new Promise(resolve => setTimeout(resolve, 100));
     
                 const [generatedDetails] = await Promise.all([
                     generateCharacterDetails(characterInput),
-                    // The portrait can be generated in parallel with details.
                     handleUpdateCharacterImage(initialCharacter.description) 
                 ]);
     
@@ -1648,9 +1733,14 @@ const App: React.FC = () => {
                 const enhancedParsedSkills: Record<string, number> = {};
                 if (finalCharacterInput.skills) {
                     finalCharacterInput.skills.split(',').forEach(pair => {
-                        const [key, value] = pair.split(':');
-                        if (key && value && !isNaN(parseInt(value.trim(), 10))) {
-                            enhancedParsedSkills[key.trim()] = parseInt(value.trim(), 10);
+                        const parts = pair.split(':');
+                        const key = parts[0]?.trim();
+                        const valueStr = parts[1]?.trim();
+                        if (key && valueStr) {
+                            const valueNum = parseInt(valueStr, 10);
+                            if (!isNaN(valueNum)) {
+                                enhancedParsedSkills[key] = valueNum;
+                            }
                         }
                     });
                 }
@@ -1663,15 +1753,29 @@ const App: React.FC = () => {
                 };
     
                 dispatch({ type: 'UPDATE_CHARACTER', payload: characterUpdates });
+
+                // Generate and apply flavor AFTER the base character updates have been dispatched.
+                const characterForFlavor = { ...initialCharacter, ...characterUpdates };
+                const flavor = await generateCharacterFlavor(characterForFlavor);
+                const flavorUpdates: Partial<Character> = {
+                    class: flavor.class || characterForFlavor.class, // Fallback to existing class
+                };
+                if (flavor.quirk) {
+                    flavorUpdates.backstory = `${characterForFlavor.backstory}\n\n**Quirk:** ${flavor.quirk}`;
+                }
+
+                if (flavor.class !== characterForFlavor.class || flavor.quirk) {
+                    dispatch({ type: 'UPDATE_CHARACTER', payload: flavorUpdates });
+                }
             })();
     
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
             dispatch({ type: 'SET_ERROR', payload: 'Failed to start the game. Please check your API key and try again.' });
         }
-    };
+    }, [handlePlayerAction, handleUpdateCharacterImage]);
     
-    const loadGameFromState = (savedState: SavedGameState | null) => {
+    const loadGameFromState = useCallback((savedState: SavedGameState | null) => {
         if (!savedState) return;
         savedTurnIndex.current = null;
         const chat = initializeChat(savedState.worldSummary, savedState.character, savedState.settings, savedState.chatHistory);
@@ -1682,9 +1786,9 @@ const App: React.FC = () => {
         setChatSession(chat);
         dispatch({ type: 'LOAD_GAME', payload: savedState });
         activeChatSettings.current = savedState.settings;
-    };
+    }, []);
 
-    const handleSaveGame = async () => {
+    const handleSaveGame = useCallback(async () => {
         if (!chatSession || state.storyLog.length === 0 || isSaving) return;
         
         setIsSaving(true);
@@ -1693,7 +1797,7 @@ const App: React.FC = () => {
             saveGameState({ ...state, chatHistory: history });
             dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
             setNotification("Game progress saved!");
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to save game state:", error);
         } finally {
             setTimeout(() => {
@@ -1701,49 +1805,48 @@ const App: React.FC = () => {
                 setNotification(null);
             }, 1500);
         }
-    };
+    }, [chatSession, isSaving, state]);
     
     // Auto-save logic
     useEffect(() => {
         const lastEntryIndex = state.storyLog.length - 1;
         const lastEntry = state.storyLog[lastEntryIndex];
-        // Save only when an AI turn has fully completed and hasn't been saved before.
         if (state.gamePhase === GamePhase.PLAYING && lastEntry?.type === 'ai' && !lastEntry.isStreaming && savedTurnIndex.current !== lastEntryIndex) {
             handleSaveGame();
-            savedTurnIndex.current = lastEntryIndex; // Mark this turn index as saved
+            savedTurnIndex.current = lastEntryIndex;
         }
-    }, [state.storyLog, state.gamePhase]);
+    }, [state.storyLog, state.gamePhase, handleSaveGame]);
     
-    const handleRegenerateResponse = () => {
+    const handleRegenerateResponse = useCallback(() => {
         if (!previousGameState || state.gamePhase === GamePhase.LOADING) return;
         const lastPlayerAction = [...previousGameState.storyLog].reverse().find(e => e.type === 'player');
         if (!lastPlayerAction) return;
         
         loadGameFromState(previousGameState);
         setTimeout(() => handlePlayerAction(lastPlayerAction.content), 50);
-    };
+    }, [previousGameState, state.gamePhase, loadGameFromState, handlePlayerAction]);
 
     const latestBackgroundPrompt = useMemo(() => {
         return [...state.storyLog].reverse().find(e => e.type === 'ai' && e.backgroundPrompt)?.backgroundPrompt;
     }, [state.storyLog]);
 
-    const handleUpdateSceneImage = async (index: number, prompt: string) => {
+    const handleUpdateSceneImage = useCallback(async (index: number, prompt: string) => {
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, isLoading: true }});
         const newImageUrl = await generateImage(prompt, state.settings.artStyle, '16:9');
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, imageUrl: newImageUrl, isLoading: false }});
-    };
+    }, [state.settings.artStyle]);
     
-    const handleNewGame = () => {
+    const handleNewGame = useCallback(() => {
         if (window.confirm('Are you sure you want to start a new game? All current progress will be lost.')) {
             clearGameState();
             window.location.reload();
         }
-    };
+    }, []);
 
     const renderContent = () => {
         switch (state.gamePhase) {
             case GamePhase.SETUP:
-                return <SetupScreen onStart={(worldInfo, worldSummary, characterInput, _, settings) => handleStartGame(worldInfo, worldSummary, characterInput, settings)} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={state.hasSavedGame} />;
+                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={state.hasSavedGame} />;
             case GamePhase.LOADING:
                  if (state.storyLog.length > 0) {
                      return <GameUI 
