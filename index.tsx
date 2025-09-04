@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useMemo, useRef, useReducer } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI, Chat, Content, GenerateContentResponse, Type } from "@google/genai";
@@ -25,6 +24,7 @@ enum GameMasterMode {
 interface WorldInfoEntry {
   key: string;
   content: string;
+  isUnstructured?: boolean;
 }
 
 interface StoryEntry {
@@ -35,7 +35,7 @@ interface StoryEntry {
   isImageLoading?: boolean;
   choices?: string[];
   isStreaming?: boolean;
-  sceneTag?: string;
+  backgroundPrompt?: string;
 }
 
 interface CharacterInput {
@@ -179,6 +179,7 @@ const formatWorldInfoToString = (worldInfo: WorldInfoEntry[]): string => {
 const summarizeWorldData = async (worldInfo: WorldInfoEntry[]): Promise<string> => {
     if (!ai) return '';
     const worldData = formatWorldInfoToString(worldInfo);
+    if (!worldData.trim()) return '';
     const summarizationPrompt = `You are a world-building assistant. Your task is to read the following extensive world lore and distill it into a concise, high-level summary. This summary will serve as the core, long-term memory for a Game Master AI. Focus on the most critical facts: key locations, major factions, overarching history, fundamental rules of magic/technology, and the general tone of the world. The summary should be dense with information but brief enough to be used as a quick reference. Output ONLY the summary.
 
 --- WORLD LORE START ---
@@ -220,13 +221,17 @@ Your Game Master mode is: ${settings.gmMode}. ${getModeInstruction(settings.gmMo
     *   To add to the character's journal: \`[update-backstory]Summary of key events.[/update-backstory]\`
     *   To manage inventory: \`[add-item]Item Name|Description[/add-item]\` or \`[remove-item]Item Name[/remove-item]\`.
     *   To update a skill: \`[update-skill]Skill Name|New Value[/update-skill]\` (e.g., [update-skill]Stealth|25[/update-skill]). Use this to reflect character growth.
-    *   **Scene Tag:** At the START of your narrative text, you MUST include a single, one-word tag describing the primary environment. This is CRITICAL for setting the visual mood. Examples: \`[scene-tag]forest[/scene-tag]\`, \`[scene-tag]cave[/scene-tag]\`, \`[scene-tag]city[/scene-tag]\`, \`[scene-tag]dungeon[/scene-tag]\`, \`[scene-tag]tavern[/scene-tag]\`.
+    *   **Background Prompt:** At the START of your narrative text, you MUST include a short, descriptive phrase for a background image. This is CRITICAL for setting the visual mood. Examples: \`[background-prompt]dark mossy forest[/background-prompt]\`, \`[background-prompt]bustling medieval city market[/background-prompt]\`, \`[background-prompt]eerie dungeon corridor[/background-prompt]\`.
 
-4.  **Image Prompts:** Generate image prompts for scenes (\`[img-prompt]\`) that are faithful to the narrative and the art style: "${settings.artStyle}". Follow safety rules strictly: focus on cinematic language, tension, and atmosphere, NOT explicit violence or gore.
+4.  **Combat & Skill Checks:** You MUST resolve skill-based challenges and combat using these tags, which should be placed logically within the narrative.
+    *   For non-combat challenges: \`[skill-check]Skill: Perception, Target: 15, Result: Success[/skill-check]\`. Base the outcome on the character's skill value.
+    *   For combat actions: \`[combat]Event: Player Attack, Weapon: Sword, Target: Goblin, Roll: 18, Result: Hit, Damage: 7[/combat]\`. You will track enemy health internally and narrate the results. Be descriptive.
 
-5.  **Response Format:** Structure EVERY response in this sequence:
-    1.  \`[scene-tag]\` (MUST be first)
-    2.  Story Text
+5.  **Image Prompts:** Generate image prompts for scenes (\`[img-prompt]\`) that are faithful to the narrative and the art style: "${settings.artStyle}". Follow safety rules strictly: focus on cinematic language, tension, and atmosphere, NOT explicit violence or gore.
+
+6.  **Response Format:** Structure EVERY response in this sequence:
+    1.  \`[background-prompt]\` (MUST be first)
+    2.  Story Text (including any skill-check or combat tags)
     3.  \`[img-prompt]\`
     4.  Any other update tags (\`[char-img-prompt]\`, etc.)
     5.  3-4 distinct player choices, each in its own \`[choice]\` tag.
@@ -328,7 +333,7 @@ Return a JSON object with the keys "characterClass", "alignment", "backstory", a
 1.  **characterClass**: If the class is not specified or seems too generic (e.g., "Fighter"), provide a more creative and specific class name (e.g., "Sellsword Captain"). Otherwise, use the provided one and enhance it if possible.
 2.  **alignment**: Based on the character's description and backstory, select the most fitting alignment from this list: ${alignments.join(', ')}. If the user provided one, you can keep it or choose a more appropriate one if it strongly conflicts with the character's persona.
 3.  **backstory**: If the backstory is not specified, write a brief, evocative backstory (2-3 sentences). If a backstory is provided, expand upon it, adding compelling details or a plot hook, but keep the user's original ideas.
-4.  **skills**: If skills are not specified, generate a list of 3-5 relevant skills. If skills are provided, you can add 1-2 more thematically appropriate skills. The final output must be a single string in the format "Skill Name: Value, Another Skill: Value" with values between 5 and 20.
+4.  **skills**: If skills are not specified, generate a list of core attributes (Strength, Agility, Intelligence, Charisma, Perception) and 2-3 other relevant skills. If skills are provided, you can add 1-2 more thematically appropriate skills. The final output must be a single string in the format "Strength: 12, Agility: 15, Perception: 14, Swords: 8" with all values between 5 and 20.
 `;
 
     try {
@@ -389,13 +394,26 @@ const retrieveRelevantSnippets = (query: string, worldInfo: WorldInfoEntry[], co
 //  COMPONENTS
 // ===================================================================================
 
+const ProgressBar: React.FC<{ text: string }> = ({ text }) => (
+    <div className="my-2 text-center p-3 bg-slate-900 rounded-lg border border-slate-700">
+      <div className="flex items-center justify-center space-x-2">
+        <svg className="animate-spin h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        <span className="text-indigo-300 font-semibold">{text}</span>
+      </div>
+      <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2 overflow-hidden">
+          <div className="bg-indigo-500 h-1.5 rounded-full w-full animate-progress-indeterminate"></div>
+      </div>
+    </div>
+);
+
 const SetupScreen: React.FC<{
-  onStart: (worldInfo: WorldInfoEntry[], characterInput: CharacterInput, initialPrompt: string, settings: Settings) => void;
+  onStart: (worldInfo: WorldInfoEntry[], worldSummary: string | null, characterInput: CharacterInput, initialPrompt: string, settings: Settings) => void;
   onContinue: () => void;
   onLoadFromFile: (file: File) => void;
   hasSavedGame: boolean;
 }> = ({ onStart, onContinue, onLoadFromFile, hasSavedGame }) => {
   const [worldInfo, setWorldInfo] = useState<WorldInfoEntry[]>([{ key: 'Main Lore', content: '' }]);
+  const [worldSummary, setWorldSummary] = useState<string | null>(null);
   const [openWorldEntry, setOpenWorldEntry] = useState<number | null>(0);
   const [characterPrompt, setCharacterPrompt] = useState('');
   const [characterClass, setCharacterClass] = useState('');
@@ -404,7 +422,10 @@ const SetupScreen: React.FC<{
   const [skills, setSkills] = useState('');
   const [initialPrompt, setInitialPrompt] = useState('');
   const [isEnhancing, setIsEnhancing] = useState<number | null>(null);
-  const [isStructuring, setIsStructuring] = useState(false);
+  const [isStructuringEntry, setIsStructuringEntry] = useState<number | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isFileLoading, setIsFileLoading] = useState(false);
+  const [isWorldToolsModalOpen, setIsWorldToolsModalOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>({
       artStyle: artStyles['Cinematic Film'],
       gmMode: GameMasterMode.BALANCED,
@@ -416,12 +437,13 @@ const SetupScreen: React.FC<{
   const worldFileInputRef = useRef<HTMLInputElement>(null);
 
   const isWorldDataValid = useMemo(() => worldInfo.some(entry => entry.key.trim() && entry.content.trim()), [worldInfo]);
+  const isBusy = isSummarizing || isFileLoading || isStructuringEntry !== null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isStructuring) return;
+    if (!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isBusy) return;
     const characterInput: CharacterInput = { description: characterPrompt, characterClass, alignment, backstory, skills };
-    onStart(worldInfo, characterInput, initialPrompt, settings);
+    onStart(worldInfo, worldSummary, characterInput, initialPrompt, settings);
   };
   
   const handleEnhanceWorldEntry = async (index: number) => {
@@ -430,6 +452,42 @@ const SetupScreen: React.FC<{
     updateWorldInfo(index, 'content', enhanced);
     setIsEnhancing(null);
   }
+
+  const handleStructureEntry = async (index: number) => {
+    setIsStructuringEntry(index);
+    try {
+        const entryToStructure = worldInfo[index];
+        const structuredData = await structureWorldDataWithAI(entryToStructure.content);
+        if (structuredData.length > 0) {
+            setWorldInfo(prev => {
+                const newInfo = [...prev];
+                newInfo.splice(index, 1, ...structuredData); // Replace one entry with multiple structured ones
+                return newInfo;
+            });
+        } else {
+            alert("AI structuring failed to produce categories.");
+        }
+    } catch (e) {
+        alert("An error occurred during AI structuring.");
+    } finally {
+        setIsStructuringEntry(null);
+    }
+  }
+  
+  const processLoadedWorld = (entries: WorldInfoEntry[]) => {
+      setWorldInfo(entries);
+      setOpenWorldEntry(entries.length > 0 ? 0 : null);
+      const fullText = formatWorldInfoToString(entries);
+      if (fullText.length > 10000) {
+          setIsSummarizing(true);
+          summarizeWorldData(entries)
+              .then(summary => setWorldSummary(summary))
+              .catch(() => setWorldSummary("Failed to generate summary."))
+              .finally(() => setIsSummarizing(false));
+      } else {
+          setWorldSummary(null);
+      }
+  };
 
   const addWorldInfoEntry = () => {
     setWorldInfo(prev => [...prev, { key: '', content: '' }]);
@@ -451,63 +509,50 @@ const SetupScreen: React.FC<{
   
   const handleLoadWorldFromFile = async (file: File) => {
     if (!file) return;
+    setIsFileLoading(true);
     const reader = new FileReader();
+    reader.onerror = () => {
+        alert('Error reading file.');
+        setIsFileLoading(false);
+    }
     reader.onload = async (e) => {
-        const content = e.target?.result as string;
-        if (file.name.endsWith('.json')) {
-            try {
-                const jsonData = JSON.parse(content);
-                if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
-                    setWorldInfo(jsonData);
-                    setOpenWorldEntry(0);
-                } else { alert('Invalid JSON structure for world data.'); }
-            } catch (err) { alert('Failed to parse JSON file.'); }
-        } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
-            // Attempt to parse via Markdown headers first
-            const headerRegex = /^(#{1,6})\s+(.*)$/gm;
-            const matches = [...content.matchAll(headerRegex)];
+        try {
+            const content = e.target?.result as string;
+            const newKey = file.name.replace(/\.(txt|md|json)$/, '');
 
-            if (matches.length > 0) {
-                const structuredEntries: WorldInfoEntry[] = [];
-                for (let i = 0; i < matches.length; i++) {
-                    const key = matches[i][2].trim();
-                    const startIndex = matches[i].index! + matches[i][0].length;
-                    const endIndex = i + 1 < matches.length ? matches[i + 1].index! : content.length;
-                    const entryContent = content.substring(startIndex, endIndex).trim();
-                    if (key && entryContent) {
-                        structuredEntries.push({ key, content: entryContent });
-                    }
-                }
-                setWorldInfo(structuredEntries);
-                setOpenWorldEntry(0);
-            } else {
-                 if (!window.confirm("This appears to be an unstructured lore file. Would you like to use AI to automatically organize it into categories? This may take a moment.")) {
-                    const newKey = file.name.replace(/\.(txt|md)$/, '');
-                    setWorldInfo([{ key: newKey, content }]); // Load as single entry if user declines
-                    return;
-                }
-                
-                setIsStructuring(true);
+            if (file.name.endsWith('.json')) {
                 try {
-                    const structuredData = await structureWorldDataWithAI(content);
-                    if (structuredData.length > 0) {
-                        setWorldInfo(structuredData);
-                        setOpenWorldEntry(0);
-                    } else {
-                        alert("AI structuring failed. Loading content as a single entry.");
-                        const newKey = file.name.replace(/\.(txt|md)$/, '');
-                        setWorldInfo([{ key: newKey, content }]);
+                    const jsonData = JSON.parse(content);
+                    if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
+                        processLoadedWorld(jsonData);
+                    } else { alert('Invalid JSON structure for world data.'); }
+                } catch (err) { alert('Failed to parse JSON file.'); }
+            } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
+                // Attempt to parse via Markdown headers first
+                const headerRegex = /^(#{1,6})\s+(.*)$/gm;
+                const matches = [...content.matchAll(headerRegex)];
+
+                if (matches.length > 0) {
+                    const structuredEntries: WorldInfoEntry[] = [];
+                    for (let i = 0; i < matches.length; i++) {
+                        const key = matches[i][2].trim();
+                        const startIndex = matches[i].index! + matches[i][0].length;
+                        const endIndex = i + 1 < matches.length ? matches[i + 1].index! : content.length;
+                        const entryContent = content.substring(startIndex, endIndex).trim();
+                        if (key && entryContent) {
+                            structuredEntries.push({ key, content: entryContent });
+                        }
                     }
-                } catch (error) {
-                    alert("An error occurred during AI structuring. Loading content as a single entry.");
-                    const newKey = file.name.replace(/\.(txt|md)$/, '');
-                    setWorldInfo([{ key: newKey, content }]);
-                } finally {
-                    setIsStructuring(false);
+                    processLoadedWorld(structuredEntries);
+                } else {
+                    // Load as a single, unstructured entry, giving the user the option to structure it later.
+                    processLoadedWorld([{ key: newKey, content, isUnstructured: true }]);
                 }
+            } else {
+                alert('Please select a .json, .txt, or .md file.');
             }
-        } else {
-            alert('Please select a .json, .txt, or .md file.');
+        } finally {
+             setIsFileLoading(false);
         }
     };
     reader.readAsText(file);
@@ -520,9 +565,17 @@ const SetupScreen: React.FC<{
 
   return (
     <div className="w-full max-w-3xl bg-slate-800 p-6 sm:p-8 rounded-xl shadow-2xl border border-slate-700 animate-fade-in">
+        <WorldDataToolsModal 
+            isOpen={isWorldToolsModalOpen} 
+            onClose={() => setIsWorldToolsModalOpen(false)} 
+            onLoadData={(data) => {
+                processLoadedWorld(data);
+                setIsWorldToolsModalOpen(false);
+            }} 
+        />
         <div className="mb-6">
           <div className="flex flex-col sm:flex-row gap-4">
-            {hasSavedGame && <button type="button" onClick={onContinue} className="flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition-all duration-300">Continue Last Session</button>}
+            {hasSavedGame && <button type="button" onClick={onContinue} className="flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition-all duration-300">Load Game</button>}
             <input type="file" ref={saveFileInputRef} onChange={(e) => e.target.files && onLoadFromFile(e.target.files[0])} className="hidden" accept=".json" />
             <button type="button" onClick={() => saveFileInputRef.current?.click()} className="flex-1 bg-sky-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-sky-700 transition-all">Load from File</button>
           </div>
@@ -534,19 +587,14 @@ const SetupScreen: React.FC<{
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-xl font-semibold text-indigo-300">1. Build Your World Anvil</h3>
                      <div className="flex items-center gap-4">
+                        <button type="button" onClick={() => setIsWorldToolsModalOpen(true)} className="text-xs font-semibold text-green-400 hover:text-green-300">Merge Files</button>
                         <input type="file" ref={worldFileInputRef} onChange={(e) => e.target.files && handleLoadWorldFromFile(e.target.files[0])} className="hidden" accept=".txt,.md,.json" />
-                        <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-sky-300 hover:text-sky-200">Load from File</button>
+                        <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-sky-300 hover:text-sky-200">Load File</button>
                     </div>
                 </div>
-                {isStructuring && (
-                    <div className="my-2 text-center p-3 bg-slate-900 rounded-lg border border-slate-700">
-                        <div className="flex items-center justify-center space-x-2">
-                            <svg className="animate-spin h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            <span className="text-indigo-300 font-semibold">AI is organizing your world lore...</span>
-                        </div>
-                    </div>
-                )}
-                <div className={`space-y-2 bg-slate-900/50 border border-slate-700 rounded-lg p-2 ${isStructuring ? 'opacity-50 pointer-events-none' : ''}`}>
+                {isFileLoading && <ProgressBar text="Reading world file..." />}
+                {isSummarizing && <ProgressBar text="AI is creating a world summary..." />}
+                <div className={`space-y-2 bg-slate-900/50 border border-slate-700 rounded-lg p-2 ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}>
                     {worldInfo.map((entry, index) => (
                         <div key={index} className="bg-slate-800/70 rounded">
                             <button type="button" onClick={() => setOpenWorldEntry(openWorldEntry === index ? null : index)} className="w-full flex justify-between items-center p-3 text-left">
@@ -558,7 +606,14 @@ const SetupScreen: React.FC<{
                                     <input type="text" value={entry.key} onChange={(e) => updateWorldInfo(index, 'key', e.target.value)} placeholder="Entry Key (e.g., Locations)" className="w-full bg-slate-900 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500" />
                                     <textarea value={entry.content} onChange={(e) => updateWorldInfo(index, 'content', e.target.value)} placeholder="Describe the lore for this entry..." className="w-full h-32 bg-slate-900 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 resize-y" />
                                     <div className="flex justify-between items-center">
-                                        <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim()} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
+                                        <div>
+                                            <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim() || isStructuringEntry !== null} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
+                                            {entry.isUnstructured && (
+                                                <button type="button" onClick={() => handleStructureEntry(index)} disabled={isStructuringEntry !== null || isEnhancing !== null} className="ml-4 text-xs font-semibold text-teal-300 hover:text-teal-200 disabled:text-slate-500">
+                                                    {isStructuringEntry === index ? 'Structuring...' : 'Structure with AI 🤖'}
+                                                </button>
+                                            )}
+                                        </div>
                                         <button type="button" onClick={() => removeWorldInfoEntry(index)} className="text-xs font-semibold text-red-400 hover:text-red-300">Delete Entry</button>
                                     </div>
                                 </div>
@@ -567,7 +622,7 @@ const SetupScreen: React.FC<{
                     ))}
                     <button type="button" onClick={addWorldInfoEntry} className="w-full bg-slate-700/50 text-slate-300 font-semibold py-2 rounded hover:bg-slate-700 transition">Add Lore Entry</button>
                 </div>
-                 <p className="text-xs text-slate-500 mt-1">Create distinct entries for locations, factions, history, etc. For large worlds, an initial summary will be generated on game start.</p>
+                 <p className="text-xs text-slate-500 mt-1">For large worlds, a summary will be automatically generated when you load a file.</p>
             </div>
             <div>
                 <h3 className="text-xl font-semibold text-indigo-300 mb-2">2. Create Your Character</h3>
@@ -620,7 +675,7 @@ const SetupScreen: React.FC<{
                     </div>
                 </div>
             </div>
-            <button type="submit" disabled={!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isStructuring} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 transition-all text-lg">Start New Adventure</button>
+            <button type="submit" disabled={!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isBusy} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 transition-all text-lg">Start New Adventure</button>
         </form>
     </div>
   );
@@ -823,6 +878,176 @@ const WorldKnowledgeModal: React.FC<{
     );
 };
 
+const WorldDataToolsModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onLoadData: (data: WorldInfoEntry[]) => void;
+}> = ({ isOpen, onClose, onLoadData }) => {
+    const [files, setFiles] = useState<File[]>([]);
+    const [enhanceWithAI, setEnhanceWithAI] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [processedData, setProcessedData] = useState<WorldInfoEntry[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setFiles([]);
+            setEnhanceWithAI(false);
+            setIsProcessing(false);
+            setProcessedData(null);
+            setError(null);
+        }
+    }, [isOpen]);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            setFiles(Array.from(e.target.files));
+        }
+    };
+
+    const processAndMergeFiles = async () => {
+        setIsProcessing(true);
+        setError(null);
+        setProcessedData(null);
+
+        try {
+            // Special case for single file with potential mixed JSON and text content
+            if (files.length === 1) {
+                const file = files[0];
+                const content = await file.text();
+                const trimmedContent = content.trim();
+
+                if (trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) {
+                    const lastBracket = trimmedContent.lastIndexOf(']');
+                    const lastBrace = trimmedContent.lastIndexOf('}');
+                    const splitIndex = Math.max(lastBracket, lastBrace);
+
+                    if (splitIndex > -1) {
+                        const potentialJson = trimmedContent.substring(0, splitIndex + 1);
+                        const trailingText = trimmedContent.substring(splitIndex + 1).trim();
+
+                        try {
+                            let jsonData = JSON.parse(potentialJson);
+
+                            // Normalize to array if it's a single valid object
+                            if (!Array.isArray(jsonData)) {
+                                if (typeof jsonData.key === 'string' && typeof jsonData.content === 'string') {
+                                    jsonData = [jsonData];
+                                } else {
+                                    throw new Error("Parsed JSON is not a valid structure.");
+                                }
+                            }
+                            
+                            if (!jsonData.every((item: any) => typeof item.key === 'string' && typeof item.content === 'string')) {
+                                throw new Error('Invalid item structure in JSON array.');
+                            }
+                            
+                            let finalEntries: WorldInfoEntry[] = jsonData;
+
+                            if (trailingText) {
+                                const structuredTrailing = await structureWorldDataWithAI(trailingText);
+                                if (enhanceWithAI) {
+                                    const enhancedTrailing = await Promise.all(
+                                        structuredTrailing.map(entry => enhanceWorldEntry(entry.content).then(content => ({ ...entry, content })))
+                                    );
+                                    finalEntries.push(...enhancedTrailing);
+                                } else {
+                                    finalEntries.push(...structuredTrailing);
+                                }
+                            }
+                            
+                            setProcessedData(finalEntries);
+                            return; // Successfully handled the special case, we're done.
+                        } catch (parseError) {
+                            console.warn("Could not parse as mixed content file, proceeding with normal logic.", parseError);
+                        }
+                    }
+                }
+            }
+
+            // General logic for multiple files or single non-mixed files
+            const allEntries: WorldInfoEntry[] = [];
+            for (const file of files) {
+                if (file.name.endsWith('.json')) {
+                    const content = await file.text();
+                    try {
+                        const jsonData = JSON.parse(content);
+                        if (Array.isArray(jsonData) && jsonData.every(item => typeof item.key === 'string' && typeof item.content === 'string')) {
+                            allEntries.push(...jsonData);
+                        } else {
+                            throw new Error('Invalid JSON structure.');
+                        }
+                    } catch (e) {
+                        throw new Error(`Failed to parse ${file.name}: ${(e as Error).message}`);
+                    }
+                } else if (file.type === 'text/plain' || file.name.endsWith('.md')) {
+                    const content = await file.text();
+                    const structuredEntries = await structureWorldDataWithAI(content);
+                    if (enhanceWithAI) {
+                        const enhancedEntries = await Promise.all(
+                            structuredEntries.map(async entry => ({ ...entry, content: await enhanceWorldEntry(entry.content) }))
+                        );
+                        allEntries.push(...enhancedEntries);
+                    } else {
+                        allEntries.push(...structuredEntries);
+                    }
+                }
+            }
+            setProcessedData(allEntries);
+        } catch (e) {
+            setError((e as Error).message);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleDownload = () => {
+        if (!processedData) return;
+        const dataStr = JSON.stringify(processedData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'merged_world_data.json';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-slate-800 w-full max-w-2xl rounded-lg shadow-2xl border border-slate-700 p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-green-300 font-serif">Merge & Process Lore Files</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
+                <div className="flex-grow space-y-4">
+                    <div>
+                        <input type="file" multiple ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".txt,.md,.json" />
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full text-center bg-slate-900 border-2 border-dashed border-slate-600 rounded-lg p-8 hover:border-green-500 hover:bg-slate-900/50 transition">
+                            <span className="text-slate-400">Click to select files (.json, .txt, .md)</span>
+                        </button>
+                    </div>
+                    {files.length > 0 && <div className="text-sm bg-slate-900/50 p-3 rounded-md"><ul>{files.map((f, i) => <li key={i} className="text-slate-300 truncate">{f.name}</li>)}</ul></div>}
+                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={enhanceWithAI} onChange={e => setEnhanceWithAI(e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-green-600 focus:ring-green-500" /><span>Enhance text-based lore with AI ✨ (slower)</span></label>
+                    
+                    {isProcessing && <ProgressBar text="Processing files... This may take a moment." />}
+                    {error && <div className="p-3 bg-red-900/50 text-red-300 rounded-md">{error}</div>}
+                    {processedData && <div className="p-3 bg-green-900/50 text-green-300 rounded-md">Successfully processed {files.length} files and generated {processedData.length} lore entries.</div>}
+
+                    <div className="pt-4 border-t border-slate-700 flex flex-col sm:flex-row gap-4">
+                         <button onClick={processAndMergeFiles} disabled={isProcessing || files.length === 0} className="flex-1 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:bg-slate-500">Process Files</button>
+                         <button onClick={handleDownload} disabled={isProcessing || !processedData} className="flex-1 bg-sky-600 text-white font-bold py-3 rounded-lg hover:bg-sky-700 disabled:bg-slate-500">Download JSON</button>
+                         <button onClick={() => processedData && onLoadData(processedData)} disabled={isProcessing || !processedData} className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500">Load into Anvil</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 const GameLogModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
@@ -833,21 +1058,90 @@ const GameLogModal: React.FC<{
     useEffect(() => {
       scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
     }, [storyLog]);
+    
+    const parseContent = (text: string) => {
+        const events: any[] = [];
+        let cleanedText = text;
+
+        const skillCheckRegex = /\[skill-check\](.*?)\[\/skill-check\]/gs;
+        const combatRegex = /\[combat\](.*?)\[\/combat\]/gs;
+
+        const parseDetails = (match: string) => {
+            try {
+                return Object.fromEntries(match.trim().split(',').map(s => {
+                    const [key, ...value] = s.split(':');
+                    return [key.trim(), value.join(':').trim()];
+                }));
+            } catch {
+                return { raw: match };
+            }
+        };
+
+        cleanedText = cleanedText.replace(skillCheckRegex, (_, match) => {
+            events.push({ type: 'skill-check', details: parseDetails(match) });
+            return ''; // Remove from text
+        });
+        
+        cleanedText = cleanedText.replace(combatRegex, (_, match) => {
+            events.push({ type: 'combat', details: parseDetails(match) });
+            return ''; // Remove from text
+        });
+        
+        return { cleanedText: cleanedText.trim(), events };
+    };
+    
+    const EventDisplay: React.FC<{ event: any }> = ({ event }) => {
+        const { type, details } = event;
+
+        if (type === 'skill-check') {
+            const isSuccess = details.Result?.toLowerCase() === 'success';
+            return (
+                <div className={`my-2 p-2 rounded-md border text-xs ${isSuccess ? 'bg-green-900/50 border-green-700/50 text-green-300' : 'bg-red-900/50 border-red-700/50 text-red-300'}`}>
+                    <strong>SKILL CHECK: {details.Skill || 'N/A'}</strong> - Result: {details.Result || 'N/A'} (Target: {details.Target || '?'})
+                </div>
+            );
+        }
+
+        if (type === 'combat') {
+            const isHit = details.Result?.toLowerCase() === 'hit';
+            return (
+                <div className={`my-2 p-2 rounded-md border text-xs ${isHit ? 'bg-yellow-900/50 border-yellow-700/50 text-yellow-300' : 'bg-slate-700/50 border-slate-600/50 text-slate-300'}`}>
+                    <strong>COMBAT: {details.Event || 'Action'}</strong> on {details.Target || 'Target'} - {isHit ? `HIT for ${details.Damage || '?'} dmg` : 'MISS'} (Roll: {details.Roll || '?'})
+                </div>
+            );
+        }
+
+        return null;
+    };
+
+    let turnCounter = 0;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
             <div className="bg-slate-800 w-full max-w-3xl h-[80vh] rounded-lg shadow-2xl border border-slate-700 p-6 flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-indigo-300 font-serif">Game Log</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
                 <div ref={scrollRef} className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2 space-y-4">
-                    {storyLog.map((entry, index) => (
-                        <div key={index}>
-                            {entry.type === 'player' ? (
-                                <div className="flex justify-end"><div className="bg-indigo-600/40 p-3 rounded-lg max-w-[80%]"><p className="text-indigo-100 italic">{entry.content}</p></div></div>
-                            ) : (
-                                <div className="bg-slate-700/30 p-3 rounded-lg"><ReactMarkdown children={entry.content} remarkPlugins={[remarkGfm]} components={{ p: ({node, ...props}) => <p className="text-slate-200 text-sm mb-2 last:mb-0" {...props} /> }} /></div>
-                            )}
-                        </div>
-                    ))}
+                    {storyLog.map((entry, index) => {
+                        let isNewTurn = false;
+                        if (entry.type === 'player') {
+                            turnCounter++;
+                            isNewTurn = true;
+                        }
+                        const { cleanedText, events } = entry.type === 'ai' ? parseContent(entry.content) : { cleanedText: entry.content, events: [] };
+                        return (
+                            <div key={index}>
+                                {isNewTurn && <div className="flex items-center my-4"><div className="flex-grow border-t border-slate-600"></div><span className="flex-shrink mx-4 text-slate-400 font-bold">Turn {turnCounter}</span><div className="flex-grow border-t border-slate-600"></div></div>}
+                                {entry.type === 'player' ? (
+                                    <div className="flex justify-end"><div className="bg-indigo-600/40 p-3 rounded-lg max-w-[80%]"><p className="text-indigo-100 italic">{cleanedText}</p></div></div>
+                                ) : (
+                                    <div className="bg-slate-700/30 p-3 rounded-lg">
+                                        {events.map((evt, i) => <EventDisplay key={i} event={evt} />)}
+                                        <ReactMarkdown children={cleanedText} remarkPlugins={[remarkGfm]} components={{ p: ({node, ...props}) => <p className="text-slate-200 text-sm mb-2 last:mb-0" {...props} /> }} />
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         </div>
@@ -927,7 +1221,7 @@ function appReducer(state: AppState, action: Action): AppState {
                 storyLog: [],
                 inventory: [],
                 hasSavedGame: false,
-                gamePhase: GamePhase.LOADING,
+                gamePhase: GamePhase.PLAYING,
             };
         case 'LOAD_GAME':
             const { storyLog, worldInfo, worldSummary, settings, character, inventory } = action.payload;
@@ -993,7 +1287,9 @@ const ChoiceAndInputPanel: React.FC<{
     onOpenSettings: () => void;
     onOpenLog: () => void;
     onNewGame: () => void;
-}> = ({ isAITurn, choices, onPlayerAction, canUndo, onUndo, onOpenSettings, onOpenLog, onNewGame }) => {
+    onSaveGame: () => void;
+    isSaving: boolean;
+}> = ({ isAITurn, choices, onPlayerAction, canUndo, onUndo, onOpenSettings, onOpenLog, onNewGame, onSaveGame, isSaving }) => {
     const [playerInput, setPlayerInput] = useState('');
 
     useEffect(() => {
@@ -1031,8 +1327,11 @@ const ChoiceAndInputPanel: React.FC<{
                 <button onClick={onUndo} disabled={!canUndo || isAITurn} title="Undo" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 15l-3-3m0 0l3-3m-3 3h8a5 5 0 000-10H9" /></svg>
                 </button>
+                <button onClick={onSaveGame} disabled={isAITurn || isSaving} title="Save Game" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors duration-300">
+                    {isSaving ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>}
+                </button>
                  <button onClick={onOpenSettings} title="Settings" disabled={isAITurn} className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826 3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </button>
                 <button onClick={onOpenLog} title="View Log" disabled={isAITurn} className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
@@ -1057,7 +1356,9 @@ const GameUI: React.FC<{
     onOpenLog: () => void;
     onNewGame: () => void;
     onOpenWorldKnowledge: () => void;
-}> = ({ state, previousGameState, onPlayerAction, onRegenerateResponse, onUpdateCharacterImage, onUpdateSceneImage, onUndo, onOpenSettings, onOpenLog, onNewGame, onOpenWorldKnowledge }) => {
+    onSaveGame: () => void;
+    isSaving: boolean;
+}> = ({ state, previousGameState, onPlayerAction, onRegenerateResponse, onUpdateCharacterImage, onUpdateSceneImage, onUndo, onOpenSettings, onOpenLog, onNewGame, onOpenWorldKnowledge, onSaveGame, isSaving }) => {
     const logEndRef = useRef<HTMLDivElement>(null);
     useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [state.storyLog]);
 
@@ -1105,6 +1406,8 @@ const GameUI: React.FC<{
                         onOpenSettings={onOpenSettings}
                         onOpenLog={onOpenLog}
                         onNewGame={onNewGame}
+                        onSaveGame={onSaveGame}
+                        isSaving={isSaving}
                     />
                 </div>
             </div>
@@ -1123,29 +1426,11 @@ const App: React.FC = () => {
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isWorldModalOpen, setIsWorldModalOpen] = useState(false);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [notification, setNotification] = useState<string | null>(null);
     
     const activeChatSettings = useRef<Settings>(state.settings);
-
-    // Create a ref to hold the latest state, setters, and other values needed by callbacks.
-    // This avoids stale closures in async functions without needing massive dependency arrays.
-    const callbackDependencies = useRef({
-      state,
-      chatSession,
-      setPreviousGameState,
-      dispatch,
-      activeChatSettings
-    });
-
-    // Keep the ref updated on every render with the latest values.
-    useEffect(() => {
-        callbackDependencies.current = {
-            state,
-            chatSession,
-            setPreviousGameState,
-            dispatch,
-            activeChatSettings
-        };
-    });
+    const savedTurnIndex = useRef<number | null>(null);
 
     // Initial check for saved game and API key
     useEffect(() => {
@@ -1187,13 +1472,12 @@ const App: React.FC = () => {
         }
     }, [state.settings, state.gamePhase, chatSession, state.worldSummary, state.character]);
 
-    const processFinalResponse = useCallback(async (responseText: string) => {
-        const { state } = callbackDependencies.current;
-        const tagRegex = /\[(img-prompt|char-img-prompt|update-backstory|scene-tag)\](.*?)\[\/\1\]/gs;
+    const processFinalResponse = async (responseText: string) => {
+        const tagRegex = /\[(img-prompt|char-img-prompt|update-backstory|background-prompt)\](.*?)\[\/\1\]/gs;
         const choiceRegex = /\[choice\](.*?)\[\/choice\]/g;
         const itemRegex = /\[(add-item|remove-item)\](.*?)\[\/\1\]/g;
         const skillRegex = /\[update-skill\](.*?)\|(.*?)\[\/update-skill\]/g;
-
+        
         let content = responseText;
         const result: any = { addedItems: [], removedItems: [], skillUpdates: {} };
 
@@ -1201,7 +1485,7 @@ const App: React.FC = () => {
             if (tag === 'img-prompt') result.imgPrompt = value.trim();
             if (tag === 'char-img-prompt') result.newCharacterDescription = value.trim();
             if (tag === 'update-backstory') result.newBackstoryEntry = value.trim();
-            if (tag === 'scene-tag') result.sceneTag = value.trim();
+            if (tag === 'background-prompt') result.backgroundPrompt = value.trim();
             return '';
         });
 
@@ -1226,6 +1510,8 @@ const App: React.FC = () => {
             }
         });
         
+        // We leave skill-check and combat tags in the content for the log to display
+        // We only remove other functional tags
         content = content.replace(itemRegex, '').replace(skillRegex, '').trim();
         result.content = content;
 
@@ -1234,10 +1520,9 @@ const App: React.FC = () => {
         }
         
         return result;
-    }, []);
+    };
     
-    const handleUpdateCharacterImage = useCallback(async (description: string) => {
-        const { state, dispatch } = callbackDependencies.current;
+    const handleUpdateCharacterImage = async (description: string) => {
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: true });
         
         let newPortrait: CharacterPortrait = { prompt: description };
@@ -1248,10 +1533,9 @@ const App: React.FC = () => {
         
         dispatch({ type: 'UPDATE_CHARACTER', payload: { description, portraits: [...state.character.portraits, newPortrait] } });
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: false });
-    }, []);
+    };
 
-    const handlePlayerAction = useCallback(async (action: string, session?: Chat) => {
-        const { state, chatSession, setPreviousGameState, dispatch } = callbackDependencies.current;
+    const handlePlayerAction = async (action: string, session?: Chat) => {
         const chatToUse = session || chatSession;
 
         if (!chatToUse || !action.trim() || state.gamePhase === GamePhase.LOADING) return;
@@ -1304,72 +1588,92 @@ const App: React.FC = () => {
                 newInventory = [...state.inventory.filter(item => !processed.removedItems.includes(item.name)), ...processed.addedItems];
             }
             
-            const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || '', imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, sceneTag: processed.sceneTag, isImageLoading: false, isStreaming: false };
+            const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || '', imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, backgroundPrompt: processed.backgroundPrompt, isImageLoading: false, isStreaming: false };
             dispatch({ type: 'FINISH_TURN', payload: { entry: finalAiEntry, character: characterUpdates, inventory: newInventory, skillUpdates: processed.skillUpdates }});
 
         } catch (e) {
             console.error(e);
             dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from the Game Master. Please try again.' });
         }
-    }, [processFinalResponse, handleUpdateCharacterImage]);
+    };
 
-    const handleStartGame = useCallback(async (worldInfo: WorldInfoEntry[], characterInput: CharacterInput, initialPrompt: string, newSettings: Settings) => {
-        dispatch({ type: 'SET_PHASE', payload: GamePhase.LOADING });
+    const handleStartGame = (worldInfo: WorldInfoEntry[], worldSummary: string | null, characterInput: CharacterInput, newSettings: Settings) => {
         try {
-            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Condensing world knowledge...' });
-            const worldDataString = formatWorldInfoToString(worldInfo);
-            const summary = worldDataString.length > 10000 ? await summarizeWorldData(worldInfo) : worldDataString;
-            
-            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Fleshing out your character...' });
-            const generatedDetails = await generateCharacterDetails(characterInput);
-            
-            const finalCharacterInput = {
-                ...characterInput,
-                characterClass: generatedDetails.characterClass || characterInput.characterClass,
-                alignment: generatedDetails.alignment || characterInput.alignment,
-                backstory: generatedDetails.backstory || characterInput.backstory,
-                skills: generatedDetails.skills || characterInput.skills,
-            };
-
-            const parsedSkills: Record<string, number> = {};
-            if (finalCharacterInput.skills) {
-                finalCharacterInput.skills.split(',').forEach(pair => {
+            const summary = worldSummary || formatWorldInfoToString(worldInfo);
+            savedTurnIndex.current = null;
+    
+            const initialParsedSkills: Record<string, number> = {};
+            if (characterInput.skills) {
+                characterInput.skills.split(',').forEach(pair => {
                     const [key, value] = pair.split(':');
-                    if(key && value && !isNaN(parseInt(value.trim(), 10))) {
-                        parsedSkills[key.trim()] = parseInt(value.trim(), 10);
+                    if (key && value && !isNaN(parseInt(value.trim(), 10))) {
+                        initialParsedSkills[key.trim()] = parseInt(value.trim(), 10);
                     }
                 });
             }
-
-            const newCharacter: Character = {
-                description: finalCharacterInput.description,
-                class: finalCharacterInput.characterClass || 'Adventurer',
-                alignment: finalCharacterInput.alignment || 'True Neutral',
-                backstory: finalCharacterInput.backstory || 'A mysterious past awaits.',
+    
+            const initialCharacter: Character = {
+                description: characterInput.description,
+                class: characterInput.characterClass || 'Adventurer',
+                alignment: characterInput.alignment || 'True Neutral',
+                backstory: characterInput.backstory || 'A mysterious past awaits...',
                 portraits: [],
-                skills: parsedSkills,
+                skills: initialParsedSkills,
             };
-
-            dispatch({ type: 'START_NEW_GAME', payload: { worldInfo, worldSummary: summary, character: newCharacter, settings: newSettings } });
+    
+            // This action now sets the game phase to PLAYING, which renders the game UI immediately.
+            dispatch({ type: 'START_NEW_GAME', payload: { worldInfo, worldSummary: summary, character: initialCharacter, settings: newSettings } });
             activeChatSettings.current = newSettings;
-            
-            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'Generating character portrait...' });
-            await handleUpdateCharacterImage(finalCharacterInput.description);
-            
-            dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'The Game Master is preparing your story...' });
-            const chat = initializeChat(summary, newCharacter, newSettings);
-            if(!chat) throw new Error("Failed to initialize chat session.");
+    
+            const chat = initializeChat(summary, initialCharacter, newSettings);
+            if (!chat) throw new Error("Failed to initialize chat session.");
             setChatSession(chat);
-            
-            await handlePlayerAction(initialPrompt, chat);
+    
+            // This starts the first turn, showing a loading state within the game UI.
+            handlePlayerAction("Let's begin.", chat);
+    
+            // Run character enhancement and portrait generation in the background.
+            (async () => {
+                // Wait a moment for the main thread to be free to render the UI transition.
+                await new Promise(resolve => setTimeout(resolve, 100));
+    
+                const [generatedDetails] = await Promise.all([
+                    generateCharacterDetails(characterInput),
+                    // The portrait can be generated in parallel with details.
+                    handleUpdateCharacterImage(initialCharacter.description) 
+                ]);
+    
+                const finalCharacterInput = { ...characterInput, ...generatedDetails };
+    
+                const enhancedParsedSkills: Record<string, number> = {};
+                if (finalCharacterInput.skills) {
+                    finalCharacterInput.skills.split(',').forEach(pair => {
+                        const [key, value] = pair.split(':');
+                        if (key && value && !isNaN(parseInt(value.trim(), 10))) {
+                            enhancedParsedSkills[key.trim()] = parseInt(value.trim(), 10);
+                        }
+                    });
+                }
+    
+                const characterUpdates: Partial<Character> = {
+                    class: finalCharacterInput.characterClass || initialCharacter.class,
+                    alignment: finalCharacterInput.alignment || initialCharacter.alignment,
+                    backstory: finalCharacterInput.backstory || initialCharacter.backstory,
+                    skills: Object.keys(enhancedParsedSkills).length > 0 ? { ...initialCharacter.skills, ...enhancedParsedSkills } : initialCharacter.skills,
+                };
+    
+                dispatch({ type: 'UPDATE_CHARACTER', payload: characterUpdates });
+            })();
+    
         } catch (e) {
             console.error(e);
             dispatch({ type: 'SET_ERROR', payload: 'Failed to start the game. Please check your API key and try again.' });
         }
-    }, [handlePlayerAction, handleUpdateCharacterImage]);
+    };
     
-    const loadGameFromState = useCallback((savedState: SavedGameState | null) => {
+    const loadGameFromState = (savedState: SavedGameState | null) => {
         if (!savedState) return;
+        savedTurnIndex.current = null;
         const chat = initializeChat(savedState.worldSummary, savedState.character, savedState.settings, savedState.chatHistory);
         if (!chat) {
             dispatch({ type: 'SET_ERROR', payload: "Failed to re-initialize chat from save." });
@@ -1378,58 +1682,68 @@ const App: React.FC = () => {
         setChatSession(chat);
         dispatch({ type: 'LOAD_GAME', payload: savedState });
         activeChatSettings.current = savedState.settings;
-    }, []);
+    };
 
-    const handleSaveGame = useCallback(async () => {
-        const { state, chatSession } = callbackDependencies.current;
-        if (!chatSession || state.storyLog.length === 0) return;
+    const handleSaveGame = async () => {
+        if (!chatSession || state.storyLog.length === 0 || isSaving) return;
+        
+        setIsSaving(true);
         try {
             const history = await chatSession.getHistory();
             saveGameState({ ...state, chatHistory: history });
             dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
+            setNotification("Game progress saved!");
         } catch (error) {
             console.error("Failed to save game state:", error);
+        } finally {
+            setTimeout(() => {
+                setIsSaving(false);
+                setNotification(null);
+            }, 1500);
         }
-    }, []);
+    };
     
+    // Auto-save logic
     useEffect(() => {
-        const lastEntry = state.storyLog[state.storyLog.length - 1];
-        if (state.gamePhase === GamePhase.PLAYING && lastEntry?.type === 'ai' && !lastEntry.isStreaming) {
+        const lastEntryIndex = state.storyLog.length - 1;
+        const lastEntry = state.storyLog[lastEntryIndex];
+        // Save only when an AI turn has fully completed and hasn't been saved before.
+        if (state.gamePhase === GamePhase.PLAYING && lastEntry?.type === 'ai' && !lastEntry.isStreaming && savedTurnIndex.current !== lastEntryIndex) {
             handleSaveGame();
+            savedTurnIndex.current = lastEntryIndex; // Mark this turn index as saved
         }
-    }, [state.storyLog, state.gamePhase, handleSaveGame]);
+    }, [state.storyLog, state.gamePhase]);
     
-    const handleRegenerateResponse = useCallback(() => {
+    const handleRegenerateResponse = () => {
         if (!previousGameState || state.gamePhase === GamePhase.LOADING) return;
         const lastPlayerAction = [...previousGameState.storyLog].reverse().find(e => e.type === 'player');
         if (!lastPlayerAction) return;
         
         loadGameFromState(previousGameState);
         setTimeout(() => handlePlayerAction(lastPlayerAction.content), 50);
-    }, [previousGameState, state.gamePhase, loadGameFromState, handlePlayerAction]);
+    };
 
-    const latestSceneTag = useMemo(() => {
-        return [...state.storyLog].reverse().find(e => e.type === 'ai' && e.sceneTag)?.sceneTag;
+    const latestBackgroundPrompt = useMemo(() => {
+        return [...state.storyLog].reverse().find(e => e.type === 'ai' && e.backgroundPrompt)?.backgroundPrompt;
     }, [state.storyLog]);
 
-    const handleUpdateSceneImage = useCallback(async (index: number, prompt: string) => {
-        const { state } = callbackDependencies.current;
+    const handleUpdateSceneImage = async (index: number, prompt: string) => {
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, isLoading: true }});
         const newImageUrl = await generateImage(prompt, state.settings.artStyle, '16:9');
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, imageUrl: newImageUrl, isLoading: false }});
-    }, []);
+    };
     
-    const handleNewGame = useCallback(() => {
+    const handleNewGame = () => {
         if (window.confirm('Are you sure you want to start a new game? All current progress will be lost.')) {
             clearGameState();
             window.location.reload();
         }
-    }, []);
+    };
 
     const renderContent = () => {
         switch (state.gamePhase) {
             case GamePhase.SETUP:
-                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={state.hasSavedGame} />;
+                return <SetupScreen onStart={(worldInfo, worldSummary, characterInput, _, settings) => handleStartGame(worldInfo, worldSummary, characterInput, settings)} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={(file) => { const reader = new FileReader(); reader.onload = (e) => loadGameFromState(JSON.parse(e.target?.result as string)); reader.readAsText(file); }} hasSavedGame={state.hasSavedGame} />;
             case GamePhase.LOADING:
                  if (state.storyLog.length > 0) {
                      return <GameUI 
@@ -1444,6 +1758,8 @@ const App: React.FC = () => {
                         onOpenLog={() => setIsLogModalOpen(true)}
                         onNewGame={handleNewGame}
                         onOpenWorldKnowledge={() => setIsWorldModalOpen(true)}
+                        onSaveGame={handleSaveGame}
+                        isSaving={isSaving}
                      />;
                  }
                  return <div className="flex items-center justify-center h-[85vh]"><div className="flex items-center space-x-2"><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce"></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.15s'}}></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.3s'}}></div><span className="text-slate-400 font-serif">{state.loadingMessage}</span></div></div>;
@@ -1460,6 +1776,8 @@ const App: React.FC = () => {
                     onOpenLog={() => setIsLogModalOpen(true)}
                     onNewGame={handleNewGame}
                     onOpenWorldKnowledge={() => setIsWorldModalOpen(true)}
+                    onSaveGame={handleSaveGame}
+                    isSaving={isSaving}
                  />;
             case GamePhase.ERROR:
                  return <div className="text-red-400 p-4 bg-red-900/50 rounded-md"><h2>An Error Occurred</h2><p>{state.error}</p><button onClick={() => { clearGameState(); window.location.reload(); }} className="mt-4 bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">Start Over</button></div>;
@@ -1467,13 +1785,14 @@ const App: React.FC = () => {
     }
     
     const backgroundUrl = useMemo(() => {
-        if (!state.settings.dynamicBackgrounds || !latestSceneTag) return '';
-        return `https://source.unsplash.com/1600x900/?${latestSceneTag}`;
-    }, [latestSceneTag, state.settings.dynamicBackgrounds]);
+        if (!state.settings.dynamicBackgrounds || !latestBackgroundPrompt) return '';
+        return `https://source.unsplash.com/1600x900/?${encodeURIComponent(latestBackgroundPrompt)}`;
+    }, [latestBackgroundPrompt, state.settings.dynamicBackgrounds]);
 
 
     return (
         <div className="min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8">
+            {notification && <div className="fixed top-5 right-5 bg-green-600 text-white py-2 px-4 rounded-lg shadow-lg z-[100] animate-fade-in-down">{notification}</div>}
              <div id="background-container" style={{ backgroundImage: `url(${backgroundUrl})`, transition: 'background-image 1.5s ease-in-out' }} className="fixed inset-0 bg-cover bg-center filter blur-sm scale-110 opacity-20" />
             <header className="text-center w-full max-w-7xl mx-auto mb-6"><h1 className="text-4xl sm:text-5xl font-bold text-indigo-400 font-serif">CYOA Game Master</h1></header>
             
