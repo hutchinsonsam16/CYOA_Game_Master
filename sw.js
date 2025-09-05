@@ -1,14 +1,16 @@
-const CACHE_NAME = 'cyoa-game-master-v2';
+const CACHE_NAME = 'cyoa-game-master-v4';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/index.tsx',
+  './',
+  './index.html',
+  './index.js',
+  './manifest.json',
   'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,700;1,400&display=swap',
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,700;1,400&display.swap',
   'https://aistudiocdn.com/react@^19.1.1',
   'https://aistudiocdn.com/@google/genai@^1.16.0',
   'https://esm.sh/react-markdown@9',
-  'https://esm.sh/remark-gfm@4'
+  'https://esm.sh/remark-gfm@4',
+  'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2'
 ];
 
 self.addEventListener('install', (event) => {
