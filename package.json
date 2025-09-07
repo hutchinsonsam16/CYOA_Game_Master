@@ -5,7 +5,8 @@
   "main": "electron.js",
   "scripts": {
     "start": "node_modules\\.bin\\electron .",
-    "build": "shx rm -rf dist && shx mkdir dist && shx cp index.html sw.js manifest.json metadata.json index.css dist/ && cross-env NODE_ENV=production esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic",
+    "build:css": "postcss ./index.css -o ./dist/index.css --no-map",
+    "build": "shx rm -rf dist && shx mkdir dist && npm run build:css && shx cp index.html sw.js manifest.json metadata.json dist/ && cross-env NODE_ENV=production esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic",
     "electron:build": "npm run build && electron-builder",
     "android:sync": "npm run build && npx cap sync android",
     "android:open": "npx cap open android"
@@ -16,11 +17,14 @@
     "@capacitor/android": "^6.0.0",
     "@capacitor/cli": "^6.0.0",
     "@capacitor/core": "^6.0.0",
+    "autoprefixer": "^10.4.19",
     "cross-env": "^7.0.3",
     "electron": "^38.0.0",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.25.9",
-    "shx": "^0.3.4"
+    "postcss": "^8.4.38",
+    "shx": "^0.3.4",
+    "tailwindcss": "^3.4.4"
   },
   "dependencies": {
     "@google/genai": "^1.16.0",
