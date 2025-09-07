@@ -22,13 +22,13 @@ import { saveGameState, loadGameState, clearGameState } from './services/storage
 // ===================================================================================
 
 const ProgressBar: React.FC<{ text: string }> = ({ text }) => (
-    <div className="my-2 text-center p-3 bg-slate-900 rounded-lg border border-slate-700">
+    <div className="my-2 text-center p-3 bg-surface-1 rounded-lg border border-surface-2">
         <div className="flex items-center justify-center space-x-2">
-            <svg className="animate-spin h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            <span className="text-indigo-300 font-semibold">{text}</span>
+            <svg className="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span className="text-text-main font-semibold">{text}</span>
         </div>
-        <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2 overflow-hidden">
-            <div className="bg-indigo-500 h-1.5 rounded-full w-full animate-progress-indeterminate"></div>
+        <div className="w-full bg-surface-2 rounded-full h-1.5 mt-2 overflow-hidden">
+            <div className="bg-primary h-1.5 rounded-full w-full animate-progress-indeterminate"></div>
         </div>
     </div>
 );
@@ -181,119 +181,119 @@ const SetupScreen: React.FC<{
     };
 
     return (
-        <div className="w-full max-w-3xl bg-slate-800 p-6 sm:p-8 rounded-xl shadow-2xl border border-slate-700 animate-fade-in">
+        <div className="w-full max-w-3xl bg-surface-1 p-6 sm:p-8 rounded-xl shadow-lg border border-border animate-fade-in">
             <WorldDataToolsModal isOpen={isWorldToolsModalOpen} onClose={() => setIsWorldToolsModalOpen(false)} onLoadData={(data) => { processLoadedWorld(data); setIsWorldToolsModalOpen(false); }} isApiMode={isApiMode} />
             <div className="mb-6">
                 <div className="flex flex-col sm:flex-row gap-4">
-                    {hasSavedGame && <button type="button" onClick={onContinue} className="flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition-all duration-300">Load Game</button>}
+                    {hasSavedGame && <button type="button" onClick={onContinue} className="flex-1 bg-accent text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition-all duration-300">Load Game</button>}
                     <input type="file" ref={saveFileInputRef} onChange={(e) => e.target.files && onLoadFromFile(e.target.files[0])} className="hidden" accept=".json" />
-                    <button type="button" onClick={() => saveFileInputRef.current?.click()} className="flex-1 bg-sky-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-sky-700 transition-all">Load from File</button>
+                    <button type="button" onClick={() => saveFileInputRef.current?.click()} className="flex-1 bg-primary text-white font-bold py-3 px-6 rounded-lg hover:bg-primary-hover transition-all">Load from File</button>
                 </div>
-                {hasSavedGame && <div className="my-4 flex items-center"><div className="flex-grow border-t border-slate-600"></div><span className="flex-shrink mx-4 text-slate-400">OR</span><div className="flex-grow border-t border-slate-600"></div></div>}
-                <h2 className="text-xl font-semibold text-slate-300 mt-4 text-center">Start a New Story</h2>
+                {hasSavedGame && <div className="my-4 flex items-center"><div className="flex-grow border-t border-surface-2"></div><span className="flex-shrink mx-4 text-text-muted">OR</span><div className="flex-grow border-t border-surface-2"></div></div>}
+                <h2 className="text-xl font-semibold text-primary mt-4 text-center">Start a New Story</h2>
             </div>
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
                     <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-xl font-semibold text-indigo-300">1. Build Your World Anvil</h3>
+                        <h3 className="text-xl font-semibold text-primary">1. Build Your World Anvil</h3>
                         <div className="flex items-center gap-4">
-                            <button type="button" onClick={() => setIsWorldToolsModalOpen(true)} className="text-xs font-semibold text-green-400 hover:text-green-300">Merge Files</button>
+                            <button type="button" onClick={() => setIsWorldToolsModalOpen(true)} className="text-xs font-semibold text-accent hover:text-green-500">Merge Files</button>
                             <input type="file" ref={worldFileInputRef} onChange={(e) => e.target.files && handleLoadWorldFromFile(e.target.files[0])} className="hidden" accept=".txt,.md,.json" />
-                            <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-sky-300 hover:text-sky-200">Load File</button>
+                            <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-primary hover:text-indigo-400">Load File</button>
                         </div>
                     </div>
                     {isFileLoading && <ProgressBar text="Processing world file..." />}
-                    <div className={`space-y-2 bg-slate-900/50 border border-slate-700 rounded-lg p-2 ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <div className={`space-y-2 bg-surface-2/50 border border-border rounded-lg p-2 ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}>
                         {worldInfo.map((entry, index) => (
-                            <div key={index} className="bg-slate-800/70 rounded">
+                            <div key={index} className="bg-surface-1 rounded">
                                 <button type="button" onClick={() => setOpenWorldEntry(openWorldEntry === index ? null : index)} className="w-full flex justify-between items-center p-3 text-left">
-                                    <span className="font-semibold text-slate-200">{entry.key || `Entry ${index + 1}`}</span>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-400 transition-transform ${openWorldEntry === index ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                    <span className="font-semibold text-text-main">{entry.key || `Entry ${index + 1}`}</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-text-muted transition-transform ${openWorldEntry === index ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                                 </button>
                                 {openWorldEntry === index && (
-                                    <div className="p-3 border-t border-slate-700 space-y-3 animate-fade-in">
-                                        <input type="text" value={entry.key} onChange={(e) => updateWorldInfo(index, 'key', e.target.value)} placeholder="Entry Key (e.g., Locations)" className="w-full bg-slate-900 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500" />
-                                        <textarea value={entry.content} onChange={(e) => updateWorldInfo(index, 'content', e.target.value)} placeholder="Describe the lore for this entry..." className="w-full h-32 bg-slate-900 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 resize-y" />
+                                    <div className="p-3 border-t border-border space-y-3 animate-fade-in">
+                                        <input type="text" value={entry.key} onChange={(e) => updateWorldInfo(index, 'key', e.target.value)} placeholder="Entry Key (e.g., Locations)" className="w-full bg-surface-2 border border-surface-3 rounded-md p-2 focus:ring-2 focus:ring-primary" />
+                                        <textarea value={entry.content} onChange={(e) => updateWorldInfo(index, 'content', e.target.value)} placeholder="Describe the lore for this entry..." className="w-full h-32 bg-surface-2 border border-surface-3 rounded-md p-2 focus:ring-2 focus:ring-primary resize-y" />
                                         <div className="flex justify-between items-center">
                                             <div>
-                                                <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim() || isStructuringEntry !== null || !isApiMode} className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 disabled:text-slate-500 disabled:cursor-not-allowed">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
+                                                <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim() || isStructuringEntry !== null || !isApiMode} className="text-xs font-semibold text-primary hover:text-primary-hover disabled:text-text-muted disabled:cursor-not-allowed">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
                                                 {entry.isUnstructured && (
-                                                    <button type="button" onClick={() => handleStructureEntry(index)} disabled={isStructuringEntry !== null || isEnhancing !== null || !isApiMode} className="ml-4 text-xs font-semibold text-teal-300 hover:text-teal-200 disabled:text-slate-500 disabled:cursor-not-allowed">
+                                                    <button type="button" onClick={() => handleStructureEntry(index)} disabled={isStructuringEntry !== null || isEnhancing !== null || !isApiMode} className="ml-4 text-xs font-semibold text-accent hover:text-green-500 disabled:text-text-muted disabled:cursor-not-allowed">
                                                         {isStructuringEntry === index ? 'Structuring...' : 'Structure with AI 🤖'}
                                                     </button>
                                                 )}
                                             </div>
-                                            <button type="button" onClick={() => removeWorldInfoEntry(index)} className="text-xs font-semibold text-red-400 hover:text-red-300">Delete Entry</button>
+                                            <button type="button" onClick={() => removeWorldInfoEntry(index)} className="text-xs font-semibold text-red-500 hover:text-red-600">Delete Entry</button>
                                         </div>
-                                        {!isApiMode && <p className="text-xs text-slate-500 mt-1">AI world tools require Gemini API Mode.</p>}
+                                        {!isApiMode && <p className="text-xs text-text-muted mt-1">AI world tools require Gemini API Mode.</p>}
                                     </div>
                                 )}
                             </div>
                         ))}
-                        <button type="button" onClick={addWorldInfoEntry} className="w-full bg-slate-700/50 text-slate-300 font-semibold py-2 rounded hover:bg-slate-700 transition">Add Lore Entry</button>
+                        <button type="button" onClick={addWorldInfoEntry} className="w-full bg-surface-2 text-text-main font-semibold py-2 rounded hover:bg-surface-3 transition">Add Lore Entry</button>
                     </div>
-                    <p className="text-xs text-slate-500 mt-1">For large worlds (API Mode), a summary will be automatically generated when you load a file.</p>
+                    <p className="text-xs text-text-muted mt-1">For large worlds (API Mode), a summary will be automatically generated when you load a file.</p>
                 </div>
                 <div>
-                    <h3 className="text-xl font-semibold text-indigo-300 mb-2">2. Create Your Character</h3>
-                    <input type="text" value={characterPrompt} onChange={(e) => setCharacterPrompt(e.target.value)} placeholder="Describe your character's appearance..." className="w-full bg-slate-900 border border-slate-600 rounded-md p-4 mb-4 focus:ring-2 focus:ring-indigo-500 transition" required />
+                    <h3 className="text-xl font-semibold text-primary mb-2">2. Create Your Character</h3>
+                    <input type="text" value={characterPrompt} onChange={(e) => setCharacterPrompt(e.target.value)} placeholder="Describe your character's appearance..." className="w-full bg-surface-2 border border-border rounded-md p-4 mb-4 focus:ring-2 focus:ring-primary transition" required />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="text-sm text-slate-400 mb-1 block">Class (Optional)</label>
-                            <input type="text" value={characterClass} onChange={(e) => setCharacterClass(e.target.value)} placeholder={isApiMode ? "Leave blank for AI generation" : "e.g., Rogue, Mage"} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
+                            <label className="text-sm text-text-muted mb-1 block">Class (Optional)</label>
+                            <input type="text" value={characterClass} onChange={(e) => setCharacterClass(e.target.value)} placeholder={isApiMode ? "Leave blank for AI generation" : "e.g., Rogue, Mage"} className="w-full bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary transition" />
                         </div>
                         <div>
-                            <label className="text-sm text-slate-400 mb-1 block">Alignment</label>
-                            <select value={alignment} onChange={(e) => setAlignment(e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition">
+                            <label className="text-sm text-text-muted mb-1 block">Alignment</label>
+                            <select value={alignment} onChange={(e) => setAlignment(e.target.value)} className="w-full bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary transition">
                                 {alignments.map(align => <option key={align} value={align}>{align}</option>)}
                             </select>
                         </div>
                     </div>
                     <div className="mt-4">
-                        <label className="text-sm text-slate-400">Backstory (Optional{isApiMode && " - AI will generate or enhance"})</label>
-                        <textarea value={backstory} onChange={(e) => setBackstory(e.target.value)} placeholder="Provide a few ideas, or leave blank for a surprise..." className="w-full h-24 bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition resize-none" />
+                        <label className="text-sm text-text-muted">Backstory (Optional{isApiMode && " - AI will generate or enhance"})</label>
+                        <textarea value={backstory} onChange={(e) => setBackstory(e.target.value)} placeholder="Provide a few ideas, or leave blank for a surprise..." className="w-full h-24 bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary transition resize-none" />
                     </div>
                     <div className="mt-4">
-                        <label className="text-sm text-slate-400">Skills (Optional{isApiMode && " - AI will generate or enhance"})</label>
-                        <input type="text" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="e.g., Persuasion: 10, or leave blank" className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 transition" />
+                        <label className="text-sm text-text-muted">Skills (Optional{isApiMode && " - AI will generate or enhance"})</label>
+                        <input type="text" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="e.g., Persuasion: 10, or leave blank" className="w-full bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary transition" />
                     </div>
                 </div>
                 <div>
-                    <h3 className="text-xl font-semibold text-indigo-300 mb-2">3. Set The Scene</h3>
-                    <input type="text" value={initialPrompt} onChange={(e) => setInitialPrompt(e.target.value)} placeholder="Describe your character's starting situation..." className="w-full bg-slate-900 border border-slate-600 rounded-md p-4 focus:ring-2 focus:ring-indigo-500 transition" required />
+                    <h3 className="text-xl font-semibold text-primary mb-2">3. Set The Scene</h3>
+                    <input type="text" value={initialPrompt} onChange={(e) => setInitialPrompt(e.target.value)} placeholder="Describe your character's starting situation..." className="w-full bg-surface-2 border border-border rounded-md p-4 focus:ring-2 focus:ring-primary transition" required />
                 </div>
                 <div>
-                    <h3 className="text-xl font-semibold text-indigo-300 mb-2">4. Gameplay Settings</h3>
-                    <div className="space-y-3 bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                    <h3 className="text-xl font-semibold text-primary mb-2">4. Gameplay Settings</h3>
+                    <div className="space-y-3 bg-surface-2 p-4 rounded-lg border border-border">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-semibold text-slate-300 mb-1">AI Model</label>
-                                <select value={settings.aiServiceMode} onChange={(e) => handleSettingChange('aiServiceMode', e.target.value as AiServiceMode)} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-800 disabled:cursor-not-allowed">
+                                <label className="block text-sm font-semibold text-text-main mb-1">AI Model</label>
+                                <select value={settings.aiServiceMode} onChange={(e) => handleSettingChange('aiServiceMode', e.target.value as AiServiceMode)} className="w-full bg-surface-3 border border-border rounded-md p-2 focus:ring-2 focus:ring-primary disabled:bg-surface-2 disabled:cursor-not-allowed">
                                     <option value="LOCAL">Local Model (In-Browser)</option>
                                     <option value="GEMINI_API" disabled={!isApiKeyAvailable}>Gemini API (Cloud)</option>
                                 </select>
-                                {!isApiKeyAvailable && <p className="text-xs text-slate-500 mt-1">Gemini API requires an API_KEY environment variable.</p>}
+                                {!isApiKeyAvailable && <p className="text-xs text-text-muted mt-1">Gemini API requires an API_KEY environment variable.</p>}
                             </div>
                             <div>
-                                <label className="block text-sm font-semibold text-slate-300 mb-1">GM Mode</label>
-                                <select value={settings.gmMode} onChange={(e) => handleSettingChange('gmMode', e.target.value as GameMasterMode)} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500">
+                                <label className="block text-sm font-semibold text-text-main mb-1">GM Mode</label>
+                                <select value={settings.gmMode} onChange={(e) => handleSettingChange('gmMode', e.target.value as GameMasterMode)} className="w-full bg-surface-3 border border-border rounded-md p-2 focus:ring-2 focus:ring-primary">
                                     {Object.values(GameMasterMode).map((mode) => (<option key={mode} value={mode}>{mode}</option>))}
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-semibold text-slate-300 mb-1">Art Style</label>
-                                <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} disabled={!isApiMode} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-800 disabled:cursor-not-allowed">
+                                <label className="block text-sm font-semibold text-text-main mb-1">Art Style</label>
+                                <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} disabled={!isApiMode} className="w-full bg-surface-3 border border-border rounded-md p-2 focus:ring-2 focus:ring-primary disabled:bg-surface-2 disabled:cursor-not-allowed">
                                     {Object.entries(artStyles).map(([name, prompt]) => (<option key={name} value={prompt}>{name}</option>))}
                                 </select>
                             </div>
                         </div>
-                        <div className="pt-2 border-t border-slate-600/50 space-y-2">
-                            <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-slate-500' : 'text-slate-200'}`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-slate-500 bg-slate-600 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
-                            <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-slate-500' : 'text-slate-200'}`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-slate-500 bg-slate-600 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
+                        <div className="pt-2 border-t border-border/50 space-y-2">
+                            <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-text-muted' : 'text-text-main'}`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
+                            <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-text-muted' : 'text-text-main'}`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
                         </div>
                     </div>
                 </div>
-                <button type="submit" disabled={!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isBusy} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 transition-all text-lg">Start New Adventure</button>
+                <button type="submit" disabled={!isWorldDataValid || !characterPrompt.trim() || !initialPrompt.trim() || isBusy} className="w-full bg-primary text-white font-bold py-4 rounded-lg hover:bg-primary-hover disabled:bg-surface-3 transition-all text-lg">Start New Adventure</button>
             </form>
         </div>
     );
@@ -315,20 +315,20 @@ const StoryBlock: React.FC<{
         <div className="mb-8 animate-fade-in group">
             { (entry.imageUrl || (entry.imgPrompt && entry.isImageLoading === false && settings.generateSceneImages === true)) &&
                 <div className="relative mb-4">
-                    <div className="rounded-lg overflow-hidden border-2 border-slate-700/50 shadow-lg aspect-video bg-slate-900 flex items-center justify-center">
+                    <div className="rounded-lg overflow-hidden border-2 border-border/50 shadow-md aspect-video bg-surface-2 flex items-center justify-center">
                         {entry.imageUrl ? <img src={entry.imageUrl} alt="A scene from the story" className="w-full h-full object-cover" /> :
-                            <div className="p-4 text-center"><h3 className="font-semibold text-yellow-400">{isApiMode ? 'Image Generation Failed' : 'Scene Image Generation Disabled'}</h3><p className="text-slate-400 text-xs mt-1">{isApiMode ? 'The prompt may have been blocked by safety filters.' : 'Enable scene image generation in settings (requires API Mode).'}</p></div>}
+                            <div className="p-4 text-center"><h3 className="font-semibold text-text-main">{isApiMode ? 'Image Generation Failed' : 'Scene Image Generation Disabled'}</h3><p className="text-text-muted text-xs mt-1">{isApiMode ? 'The prompt may have been blocked by safety filters.' : 'Enable scene image generation in settings (requires API Mode).'}</p></div>}
                     </div>
-                    {entry.isImageLoading && <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-lg"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>}
-                    {!entry.isImageLoading && entry.imgPrompt && settings.generateSceneImages && isApiMode && <button onClick={onRegenerateImage} className="absolute bottom-3 right-3 bg-indigo-600/80 text-white text-xs font-bold py-1 px-3 rounded-full hover:bg-indigo-700 backdrop-blur-sm shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">↻ Regenerate</button>}
+                    {entry.isImageLoading && <div className="absolute inset-0 bg-text-main/70 flex items-center justify-center rounded-lg"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>}
+                    {!entry.isImageLoading && entry.imgPrompt && settings.generateSceneImages && isApiMode && <button onClick={onRegenerateImage} className="absolute bottom-3 right-3 bg-primary/80 text-white text-xs font-bold py-1 px-3 rounded-full hover:bg-primary-hover backdrop-blur-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity">↻ Regenerate</button>}
                 </div>
             }
-            <div className="bg-slate-700/30 p-4 sm:p-5 rounded-lg border border-slate-700/50 shadow-md">
-                <ReactMarkdown children={storyText} remarkPlugins={[remarkGfm]} components={{ p: ({node, ...props}) => <p className="text-slate-200 text-base leading-relaxed font-serif mb-4 last:mb-0" {...props} /> }} />
-                {entry.isStreaming && <span className="inline-block w-2 h-4 bg-indigo-300 animate-pulse ml-1"></span>}
+            <div className="bg-surface-2/50 p-4 sm:p-5 rounded-lg border border-border/50 shadow-md">
+                <ReactMarkdown children={storyText} remarkPlugins={[remarkGfm]} components={{ p: ({node, ...props}) => <p className="text-text-main text-base leading-relaxed font-serif mb-4 last:mb-0" {...props} /> }} />
+                {entry.isStreaming && <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1"></span>}
                 {isLastEntry && !entry.isStreaming &&
-                    <div className="flex items-center justify-end mt-3 pt-3 border-t border-slate-600/50">
-                        <button onClick={onRegenerateResponse} disabled={!canRegenerate} className="flex items-center gap-1.5 bg-purple-600 text-white text-xs font-bold py-1.5 px-3 rounded-md hover:bg-purple-700 disabled:bg-slate-500 transition-all shadow-md"><RedoIcon />Regenerate Response</button>
+                    <div className="flex items-center justify-end mt-3 pt-3 border-t border-border/50">
+                        <button onClick={onRegenerateResponse} disabled={!canRegenerate} className="flex items-center gap-1.5 bg-primary text-white text-xs font-bold py-1.5 px-3 rounded-md hover:bg-primary-hover disabled:bg-surface-3 transition-all shadow-md"><RedoIcon />Regenerate Response</button>
                     </div>
                 }
             </div>
@@ -338,24 +338,24 @@ const StoryBlock: React.FC<{
 
 const NpcDisplay: React.FC<{ npc: NPC }> = ({ npc }) => {
     const hpPercentage = (npc.hp / npc.maxHp) * 100;
-    const healthBarColor = hpPercentage > 50 ? 'bg-green-500' : hpPercentage > 20 ? 'bg-yellow-500' : 'bg-red-500';
+    const healthBarColor = hpPercentage > 50 ? 'bg-accent' : hpPercentage > 20 ? 'bg-yellow-500' : 'bg-red-500';
 
     return (
-        <div className="bg-slate-700/50 p-3 rounded-lg text-sm group relative">
+        <div className="bg-surface-2 p-3 rounded-lg text-sm group relative">
             <div className="flex justify-between items-center">
-                <p className={`font-bold flex items-center gap-1.5 ${npc.isHostile ? 'text-red-300' : 'text-sky-300'}`}>
+                <p className={`font-bold flex items-center gap-1.5 ${npc.isHostile ? 'text-red-500' : 'text-primary'}`}>
                     {npc.isHostile && <span title="Hostile">⚔️</span>}
                     <span>{npc.name}</span>
                 </p>
-                {npc.isHostile && <p className="text-xs font-mono text-slate-300">{npc.hp} / {npc.maxHp}</p>}
+                {npc.isHostile && <p className="text-xs font-mono text-text-muted">{npc.hp} / {npc.maxHp}</p>}
             </div>
             {npc.isHostile && (
-                <div className="w-full bg-slate-600 rounded-full h-1.5 mt-1.5">
+                <div className="w-full bg-surface-3 rounded-full h-1.5 mt-1.5">
                     <div className={healthBarColor} style={{ width: `${hpPercentage}%`, height: '100%', borderRadius: 'inherit' }}></div>
                 </div>
             )}
-            <div className="absolute z-10 bottom-full mb-2 w-64 left-0 bg-slate-900 p-3 rounded-lg border border-slate-600 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                <p className="text-slate-300 text-xs">{npc.description}</p>
+            <div className="absolute z-10 bottom-full mb-2 w-64 left-0 bg-surface-1 p-3 rounded-lg border border-border shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                <p className="text-text-main text-xs">{npc.description}</p>
             </div>
         </div>
     );
@@ -387,60 +387,60 @@ const StatusSidebar: React.FC<{
     }, []);
 
     return (
-        <div className="w-full lg:w-1/3 lg:max-w-sm flex-shrink-0 flex flex-col bg-slate-800 p-4 rounded-xl shadow-2xl border border-slate-700">
-            <div className="flex justify-between items-center mb-2 border-b-2 border-slate-700 pb-2">
-                <h2 className="text-xl font-bold text-indigo-300 font-serif">Character</h2>
+        <div className="w-full lg:w-1/3 lg:max-w-sm flex-shrink-0 flex flex-col bg-surface-1 p-4 rounded-xl shadow-lg border border-border">
+            <div className="flex justify-between items-center mb-2 border-b-2 border-border pb-2">
+                <h2 className="text-xl font-bold text-primary font-serif">Character</h2>
             </div>
 
-            <div className="group relative aspect-square w-full bg-slate-900 rounded-md flex items-center justify-center border border-slate-600 overflow-hidden">
-                {isImageLoading ? <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-20"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" className="opacity-75"></path></svg></div> :
+            <div className="group relative aspect-square w-full bg-surface-2 rounded-md flex items-center justify-center border border-border overflow-hidden">
+                {isImageLoading ? <div className="absolute inset-0 bg-text-main/70 flex items-center justify-center z-20"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" className="opacity-75"></path></svg></div> :
                     latestPortrait?.url ? <img src={latestPortrait.url} alt="Character portrait" className="w-full h-full object-cover" /> :
-                        <div className="p-4 text-center text-slate-500">{settings.generateCharacterPortraits && isApiMode ? 'No portrait generated.' : 'Character Portrait Generation Disabled.'}</div>
+                        <div className="p-4 text-center text-text-muted">{settings.generateCharacterPortraits && isApiMode ? 'No portrait generated.' : 'Character Portrait Generation Disabled.'}</div>
                 }
             </div>
             <div className="grid grid-cols-2 gap-2 mt-2">
-                <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits || !isApiMode} className="w-full bg-indigo-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed transition">
+                <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits || !isApiMode} className="w-full bg-primary text-white text-sm font-bold py-2 rounded-lg hover:bg-primary-hover disabled:bg-surface-3 disabled:cursor-not-allowed transition">
                     {settings.generateCharacterPortraits && isApiMode ? '↻ Portrait' : 'Portraits Off'}
                 </button>
-                <button onClick={onOpenWorldKnowledge} className="w-full bg-sky-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-sky-700 transition">Search World Lore</button>
+                <button onClick={onOpenWorldKnowledge} className="w-full bg-accent text-white text-sm font-bold py-2 rounded-lg hover:bg-green-700 transition">Search World Lore</button>
             </div>
 
-            <div className="flex-grow overflow-y-auto custom-scrollbar mt-4 pt-4 border-t-2 border-slate-700 space-y-4">
+            <div className="flex-grow overflow-y-auto custom-scrollbar mt-4 pt-4 border-t-2 border-border space-y-4">
                 {npcs.length > 0 && (
                     <div>
-                        <h3 className="text-lg font-semibold text-slate-300 mb-2 font-serif">Scene Characters</h3>
+                        <h3 className="text-lg font-semibold text-primary mb-2 font-serif">Scene Characters</h3>
                         <div className="space-y-2">
                             {npcs.map(npc => <NpcDisplay key={npc.id} npc={npc} />)}
                         </div>
                     </div>
                 )}
-                <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Appearance</h3><p className="text-sm text-slate-300 font-serif leading-relaxed">{character.description}</p></div>
+                <div><h3 className="text-sm font-semibold text-text-muted uppercase">Appearance</h3><p className="text-sm text-text-main font-serif leading-relaxed">{character.description}</p></div>
                 {inventory.length > 0 &&
                     <div ref={inventoryRef}>
-                        <h3 className="text-sm font-semibold text-slate-400 uppercase mb-2">Inventory</h3>
+                        <h3 className="text-sm font-semibold text-text-muted uppercase mb-2">Inventory</h3>
                         <div className="flex flex-wrap gap-2">
                             {inventory.map(item => (
                                 <div key={item.name} className="relative">
                                     <button
                                         onClick={() => setActiveItem(prev => prev?.name === item.name ? null : item)}
-                                        className="bg-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-full hover:bg-slate-600 transition-colors"
+                                        className="bg-surface-2 text-text-main text-xs font-semibold px-2.5 py-1.5 rounded-full hover:bg-surface-3 transition-colors"
                                     >
                                         {item.name}
                                     </button>
                                     {activeItem?.name === item.name && (
-                                        <div className="absolute z-20 w-56 bg-slate-900 border border-slate-600 rounded-lg shadow-xl p-3 left-0 mt-2 animate-fade-in-up">
-                                            <p className="text-sm font-semibold text-white mb-1">{item.name}</p>
-                                            <p className="text-xs text-slate-300 mb-3 leading-relaxed">{item.description}</p>
+                                        <div className="absolute z-20 w-56 bg-surface-1 border border-border rounded-lg shadow-xl p-3 left-0 mt-2 animate-fade-in-up">
+                                            <p className="text-sm font-semibold text-text-main mb-1">{item.name}</p>
+                                            <p className="text-xs text-text-muted mb-3 leading-relaxed">{item.description}</p>
                                             <div className="flex gap-2">
                                                 <button
                                                     onClick={() => { onItemAction(`I use the ${item.name}.`); setActiveItem(null); }}
-                                                    className="flex-1 bg-indigo-600 text-white text-xs font-bold py-1.5 px-2 rounded-md hover:bg-indigo-700 transition"
+                                                    className="flex-1 bg-primary text-white text-xs font-bold py-1.5 px-2 rounded-md hover:bg-primary-hover transition"
                                                 >
                                                     Use
                                                 </button>
                                                 <button
                                                     onClick={() => { onItemAction(`I inspect the ${item.name}.`); setActiveItem(null); }}
-                                                    className="flex-1 bg-sky-600 text-white text-xs font-bold py-1.5 px-2 rounded-md hover:bg-sky-700 transition"
+                                                    className="flex-1 bg-accent text-white text-xs font-bold py-1.5 px-2 rounded-md hover:bg-green-700 transition"
                                                 >
                                                     Inspect
                                                 </button>
@@ -453,11 +453,11 @@ const StatusSidebar: React.FC<{
                     </div>
                 }
                 <div className="grid grid-cols-2 gap-4">
-                    {character.class && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Class</h3><p className="text-lg text-white font-serif">{character.class}</p></div>}
-                    {character.alignment && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Alignment</h3><p className="text-lg text-white font-serif">{character.alignment}</p></div>}
+                    {character.class && <div><h3 className="text-sm font-semibold text-text-muted uppercase">Class</h3><p className="text-lg text-text-main font-serif">{character.class}</p></div>}
+                    {character.alignment && <div><h3 className="text-sm font-semibold text-text-muted uppercase">Alignment</h3><p className="text-lg text-text-main font-serif">{character.alignment}</p></div>}
                 </div>
-                {Object.keys(character.skills).length > 0 && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Skills</h3><div className="grid grid-cols-2 gap-x-4 gap-y-1">{Object.entries(character.skills).map(([name, value]) => <div key={name} className="flex justify-between text-sm"><span className="text-slate-300">{name}</span><span className="font-bold text-white">{value}</span></div>)}</div></div>}
-                {character.backstory && <div><h3 className="text-sm font-semibold text-slate-400 uppercase">Character Log</h3><p className="text-sm text-slate-300 whitespace-pre-wrap font-serif leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">{character.backstory}</p></div>}
+                {Object.keys(character.skills).length > 0 && <div><h3 className="text-sm font-semibold text-text-muted uppercase">Skills</h3><div className="grid grid-cols-2 gap-x-4 gap-y-1">{Object.entries(character.skills).map(([name, value]) => <div key={name} className="flex justify-between text-sm"><span className="text-text-main">{name}</span><span className="font-bold text-text-main">{value}</span></div>)}</div></div>}
+                {character.backstory && <div><h3 className="text-sm font-semibold text-text-muted uppercase">Character Log</h3><p className="text-sm text-text-main whitespace-pre-wrap font-serif leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">{character.backstory}</p></div>}
             </div>
         </div>
     );
@@ -477,28 +477,28 @@ const SettingsModal: React.FC<{
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-slate-800 w-full max-w-md rounded-lg shadow-2xl border border-slate-700 p-6 space-y-6" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-indigo-300 font-serif">Settings</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
+        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-md rounded-lg shadow-xl border border-border p-6 space-y-6" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-primary font-serif">Settings</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
                 <div>
-                    <label className="block text-lg font-semibold text-indigo-300 mb-2">Art Style</label>
-                    <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} disabled={!isApiMode} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-700">
+                    <label className="block text-lg font-semibold text-primary mb-2">Art Style</label>
+                    <select value={settings.artStyle} onChange={(e) => handleSettingChange('artStyle', e.target.value)} disabled={!isApiMode} className="w-full bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:bg-surface-3">
                         {Object.entries(artStyles).map(([name, prompt]) => (<option key={name} value={prompt}>{name}</option>))}
                     </select>
                 </div>
                 <div>
-                    <label className="block text-lg font-semibold text-indigo-300 mb-2">GM Mode</label>
-                    <select value={settings.gmMode} onChange={(e) => handleSettingChange('gmMode', e.target.value as GameMasterMode)} className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 focus:ring-2 focus:ring-indigo-500">
+                    <label className="block text-lg font-semibold text-primary mb-2">GM Mode</label>
+                    <select value={settings.gmMode} onChange={(e) => handleSettingChange('gmMode', e.target.value as GameMasterMode)} className="w-full bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary">
                         {Object.values(GameMasterMode).map((mode) => (<option key={mode} value={mode}>{mode}</option>))}
                     </select>
                 </div>
-                <div className="space-y-3 pt-4 border-t border-slate-700">
-                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-slate-500' : 'text-slate-200'}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} disabled={!isApiMode} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
-                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-slate-500' : 'text-slate-200'}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} disabled={!isApiMode} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed" /></label>
-                    <label className="flex items-center justify-between cursor-pointer"><span className="text-slate-200">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500" /></label>
+                <div className="space-y-3 pt-4 border-t border-border/50">
+                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-text-muted' : 'text-text-main'}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} disabled={!isApiMode} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
+                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-text-muted' : 'text-text-main'}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} disabled={!isApiMode} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
+                    <label className="flex items-center justify-between cursor-pointer"><span className="text-text-main">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
                 </div>
-                <p className="text-xs text-slate-400 text-center">AI Model can only be changed when starting a new game.</p>
-                <button onClick={onClose} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">Close</button>
+                <p className="text-xs text-text-muted text-center">AI Model can only be changed when starting a new game.</p>
+                <button onClick={onClose} className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-primary-hover">Close</button>
             </div>
         </div>
     );
@@ -530,25 +530,25 @@ const WorldKnowledgeModal: React.FC<{
         if (!query.trim()) return text;
         try {
             const regex = new RegExp(`(${query})`, 'gi');
-            return text.replace(regex, '<mark class="bg-yellow-400 text-black px-1 rounded">$1</mark>');
+            return text.replace(regex, '<mark class="bg-yellow-400 text-text-main px-1 rounded">$1</mark>');
         } catch (e: any) { return text; }
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-slate-800 w-full max-w-3xl h-[80vh] rounded-lg shadow-2xl border border-slate-700 p-6 flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center flex-shrink-0"><h2 className="text-2xl font-bold text-sky-300 font-serif">Search World Lore</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
-                <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search for locations, characters, events..." className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 my-4 focus:ring-2 focus:ring-sky-500" autoFocus />
+        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-3xl h-[80vh] rounded-lg shadow-xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center flex-shrink-0"><h2 className="text-2xl font-bold text-accent font-serif">Search World Lore</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
+                <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search for locations, characters, events..." className="w-full bg-surface-2 border border-border rounded-md p-3 my-4 focus:ring-2 focus:ring-accent" autoFocus />
                 <div className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2">
                     {results.length > 0 ? (
                         results.map((entry, i) => (
-                            <div key={i} className="mb-4 p-4 bg-slate-900/50 border border-slate-700 rounded-md">
-                                <h3 className="text-lg font-bold text-sky-200 mb-2" dangerouslySetInnerHTML={{ __html: highlight(entry.key) }} />
-                                <p className="text-slate-300 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: highlight(entry.content) }} />
+                            <div key={i} className="mb-4 p-4 bg-surface-2/50 border border-border rounded-md">
+                                <h3 className="text-lg font-bold text-primary mb-2" dangerouslySetInnerHTML={{ __html: highlight(entry.key) }} />
+                                <p className="text-text-main whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: highlight(entry.content) }} />
                             </div>
                         ))
                     ) : (
-                        <div className="text-slate-400 text-center pt-10">{query.trim().length >= 3 ? 'No results found.' : 'Enter at least 3 characters to search.'}</div>
+                        <div className="text-text-muted text-center pt-10">{query.trim().length >= 3 ? 'No results found.' : 'Enter at least 3 characters to search.'}</div>
                     )}
                 </div>
             </div>
@@ -626,27 +626,27 @@ const WorldDataToolsModal: React.FC<{
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-slate-800 w-full max-w-2xl rounded-lg shadow-2xl border border-slate-700 p-6 flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-green-300 font-serif">Merge & Process Lore Files</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
+        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-2xl rounded-lg shadow-xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-accent font-serif">Merge & Process Lore Files</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
                 <div className="flex-grow space-y-4">
                     <div>
                         <input type="file" multiple ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".txt,.md,.json" />
-                        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full text-center bg-slate-900 border-2 border-dashed border-slate-600 rounded-lg p-8 hover:border-green-500 hover:bg-slate-900/50 transition">
-                            <span className="text-slate-400">Click to select files (.json, .txt, .md)</span>
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full text-center bg-surface-2 border-2 border-dashed border-border rounded-lg p-8 hover:border-accent hover:bg-surface-2/50 transition">
+                            <span className="text-text-muted">Click to select files (.json, .txt, .md)</span>
                         </button>
                     </div>
-                    {files.length > 0 && <div className="text-sm bg-slate-900/50 p-3 rounded-md"><ul>{files.map((f, i) => <li key={i} className="text-slate-300 truncate">{f.name}</li>)}</ul></div>}
-                    <label className={`flex items-center gap-3 ${isApiMode ? 'cursor-pointer' : 'cursor-not-allowed'}`}><input type="checkbox" checked={enhanceWithAI} onChange={e => setEnhanceWithAI(e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-green-600 focus:ring-green-500 disabled:cursor-not-allowed" /><span className={!isApiMode ? 'text-slate-500' : ''}>Enhance text-based lore with AI ✨ (slower)</span></label>
-                    {!isApiMode && <p className="text-xs text-slate-500">AI Structuring & Enhancing requires Gemini API Mode.</p>}
+                    {files.length > 0 && <div className="text-sm bg-surface-2/50 p-3 rounded-md"><ul>{files.map((f, i) => <li key={i} className="text-text-main truncate">{f.name}</li>)}</ul></div>}
+                    <label className={`flex items-center gap-3 ${isApiMode ? 'cursor-pointer' : 'cursor-not-allowed'}`}><input type="checkbox" checked={enhanceWithAI} onChange={e => setEnhanceWithAI(e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-border bg-surface-2 text-accent focus:ring-accent disabled:cursor-not-allowed" /><span className={!isApiMode ? 'text-text-muted' : ''}>Enhance text-based lore with AI ✨ (slower)</span></label>
+                    {!isApiMode && <p className="text-xs text-text-muted">AI Structuring & Enhancing requires Gemini API Mode.</p>}
                     {isProcessing && <ProgressBar text="Processing files... This may take a moment." />}
-                    {error && <div className="p-3 bg-red-900/50 text-red-300 rounded-md">{error}</div>}
-                    {processedData && <div className="p-3 bg-green-900/50 text-green-300 rounded-md">Successfully processed {files.length} files and generated {processedData.length} lore entries.</div>}
+                    {error && <div className="p-3 bg-red-500/50 text-red-100 rounded-md">{error}</div>}
+                    {processedData && <div className="p-3 bg-accent/50 text-green-100 rounded-md">Successfully processed {files.length} files and generated {processedData.length} lore entries.</div>}
 
-                    <div className="pt-4 border-t border-slate-700 flex flex-col sm:flex-row gap-4">
-                        <button onClick={processAndMergeFiles} disabled={isProcessing || files.length === 0} className="flex-1 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:bg-slate-500">Process Files</button>
-                        <button onClick={handleDownload} disabled={isProcessing || !processedData} className="flex-1 bg-sky-600 text-white font-bold py-3 rounded-lg hover:bg-sky-700 disabled:bg-slate-500">Download JSON</button>
-                        <button onClick={() => processedData && onLoadData(processedData)} disabled={isProcessing || !processedData} className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500">Load into Anvil</button>
+                    <div className="pt-4 border-t border-border flex flex-col sm:flex-row gap-4">
+                        <button onClick={processAndMergeFiles} disabled={isProcessing || files.length === 0} className="flex-1 bg-accent text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:bg-surface-3">Process Files</button>
+                        <button onClick={handleDownload} disabled={isProcessing || !processedData} className="flex-1 bg-primary text-white font-bold py-3 rounded-lg hover:bg-primary-hover disabled:bg-surface-3">Download JSON</button>
+                        <button onClick={() => processedData && onLoadData(processedData)} disabled={isProcessing || !processedData} className="flex-1 bg-primary text-white font-bold py-3 rounded-lg hover:bg-primary-hover disabled:bg-surface-3">Load into Anvil</button>
                     </div>
                 </div>
             </div>
@@ -678,11 +678,11 @@ const GameLogModal: React.FC<{
         const { type, details } = event;
         if (type === 'skill-check') {
             const isSuccess = details.Result?.toLowerCase() === 'success';
-            return <div className={`my-2 p-2 rounded-md border text-xs ${isSuccess ? 'bg-green-900/50 border-green-700/50 text-green-300' : 'bg-red-900/50 border-red-700/50 text-red-300'}`}><strong>SKILL CHECK: {details.Skill || 'N/A'}</strong> - Result: {details.Result || 'N/A'} (Target: {details.Target || '?'})</div>;
+            return <div className={`my-2 p-2 rounded-md border text-xs ${isSuccess ? 'bg-accent/50 border-accent/50 text-white' : 'bg-red-500/50 border-red-500/50 text-white'}`}><strong>SKILL CHECK: {details.Skill || 'N/A'}</strong> - Result: {details.Result || 'N/A'} (Target: {details.Target || '?'})</div>;
         }
         if (type === 'combat') {
             const isHit = details.Result?.toLowerCase() === 'hit';
-            return <div className={`my-2 p-2 rounded-md border text-xs ${isHit ? 'bg-yellow-900/50 border-yellow-700/50 text-yellow-300' : 'bg-slate-700/50 border-slate-600/50 text-slate-300'}`}><strong>COMBAT: {details.Event || 'Action'}</strong> on {details.Target || 'Target'} - {isHit ? `HIT for ${details.Damage || '?'} dmg` : 'MISS'} (Roll: {details.Roll || '?'})</div>;
+            return <div className={`my-2 p-2 rounded-md border text-xs ${isHit ? 'bg-yellow-500/50 border-yellow-500/50 text-white' : 'bg-surface-2/50 border-border/50 text-text-main'}`}><strong>COMBAT: {details.Event || 'Action'}</strong> on {details.Target || 'Target'} - {isHit ? `HIT for ${details.Damage || '?'} dmg` : 'MISS'} (Roll: {details.Roll || '?'})</div>;
         }
         return null;
     };
@@ -690,9 +690,9 @@ const GameLogModal: React.FC<{
     let turnCounter = 0;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-slate-800 w-full max-w-3xl h-[80vh] rounded-lg shadow-2xl border border-slate-700 p-6 flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-indigo-300 font-serif">Game Log</h2><button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button></div>
+        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-3xl h-[80vh] rounded-lg shadow-xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-primary font-serif">Game Log</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
                 <div ref={scrollRef} className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2 space-y-4">
                     {storyLog.map((entry, index) => {
                         let isNewTurn = false;
@@ -700,13 +700,13 @@ const GameLogModal: React.FC<{
                         const { cleanedText, events } = entry.type === 'ai' ? parseContent(entry.content) : { cleanedText: entry.content, events: [] };
                         return (
                             <div key={index}>
-                                {isNewTurn && <div className="flex items-center my-4"><div className="flex-grow border-t border-slate-600"></div><span className="flex-shrink mx-4 text-slate-400 font-bold">Turn {turnCounter}</span><div className="flex-grow border-t border-slate-600"></div></div>}
+                                {isNewTurn && <div className="flex items-center my-4"><div className="flex-grow border-t border-border"></div><span className="flex-shrink mx-4 text-text-muted font-bold">Turn {turnCounter}</span><div className="flex-grow border-t border-border"></div></div>}
                                 {entry.type === 'player' ? (
-                                    <div className="flex justify-end"><div className="bg-indigo-600/40 p-3 rounded-lg max-w-[80%]"><p className="text-indigo-100 italic">{cleanedText}</p></div></div>
+                                    <div className="flex justify-end"><div className="bg-primary/40 p-3 rounded-lg max-w-[80%]"><p className="text-white italic">{cleanedText}</p></div></div>
                                 ) : (
-                                    <div className="bg-slate-700/30 p-3 rounded-lg">
+                                    <div className="bg-surface-2/50 p-3 rounded-lg">
                                         {events.map((evt, i) => <EventDisplay key={i} event={evt} />)}
-                                        <ReactMarkdown children={cleanedText} remarkPlugins={[remarkGfm]} components={{ p: ({node, ...props}) => <p className="text-slate-200 text-sm mb-2 last:mb-0" {...props} /> }} />
+                                        <ReactMarkdown children={cleanedText} remarkPlugins={[remarkGfm]} components={{ p: ({node, ...props}) => <p className="text-text-main text-sm mb-2 last:mb-0" {...props} /> }} />
                                     </div>
                                 )}
                             </div>
@@ -757,27 +757,27 @@ const ChoiceAndInputPanel: React.FC<{
         <>
             {choices.length > 0 &&
                 <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {choices.map((choice, i) => <button key={i} onClick={() => onActionSubmit(choice)} disabled={isAITurn} className="text-left bg-slate-700/80 p-3 rounded-lg hover:bg-indigo-600 transition-all disabled:bg-slate-700 disabled:cursor-not-allowed"><span className="text-xs font-mono bg-slate-800 rounded px-1.5 py-0.5 mr-2">{i+1}</span>{choice}</button>)}
+                    {choices.map((choice, i) => <button key={i} onClick={() => onActionSubmit(choice)} disabled={isAITurn} className="text-left bg-surface-2 p-3 rounded-lg hover:bg-primary/20 hover:border-primary transition-all disabled:bg-surface-3 disabled:cursor-not-allowed border border-transparent"><span className="text-xs font-mono bg-surface-3 text-text-muted rounded px-1.5 py-0.5 mr-2">{i+1}</span>{choice}</button>)}
                 </div>
             }
             <div className="flex items-center gap-2">
                 <form onSubmit={handleSubmit} className="flex-grow flex items-center gap-2">
-                    <input ref={inputRef} type="text" value={playerInput} onChange={e => setPlayerInput(e.target.value)} placeholder={isAITurn ? "Game Master is thinking..." : "What do you do?"} disabled={isAITurn} className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-3 disabled:bg-slate-700" autoFocus />
-                    <button type="submit" disabled={isAITurn || !playerInput.trim()} className="bg-indigo-600 font-bold py-3 px-5 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500">Send</button>
+                    <input ref={inputRef} type="text" value={playerInput} onChange={e => setPlayerInput(e.target.value)} placeholder={isAITurn ? "Game Master is thinking..." : "What do you do?"} disabled={isAITurn} className="flex-grow bg-surface-2 border border-border rounded-lg p-3 disabled:bg-surface-3" autoFocus />
+                    <button type="submit" disabled={isAITurn || !playerInput.trim()} className="bg-primary text-white font-bold py-3 px-5 rounded-lg hover:bg-primary-hover disabled:bg-surface-3">Send</button>
                 </form>
-                <button onClick={onUndo} disabled={!canUndo || isAITurn} title="Undo" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed">
+                <button onClick={onUndo} disabled={!canUndo || isAITurn} title="Undo" className="p-3 bg-surface-2 rounded-lg hover:bg-surface-3 disabled:bg-surface-3 disabled:text-text-muted disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 15l-3-3m0 0l3-3m-3 3h8a5 5 0 000-10H9" /></svg>
                 </button>
-                <button onClick={onSaveGame} disabled={isAITurn || isSaving} title="Save Game" className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors duration-300">
-                    {isSaving ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>}
+                <button onClick={onSaveGame} disabled={isAITurn || isSaving} title="Save Game" className="p-3 bg-surface-2 rounded-lg hover:bg-surface-3 disabled:bg-surface-3 disabled:text-text-muted disabled:cursor-not-allowed transition-colors duration-300">
+                    {isSaving ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>}
                 </button>
-                <button onClick={onOpenSettings} title="Settings" disabled={isAITurn} className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed">
+                <button onClick={onOpenSettings} title="Settings" disabled={isAITurn} className="p-3 bg-surface-2 rounded-lg hover:bg-surface-3 disabled:bg-surface-3 disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826 3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </button>
-                <button onClick={onOpenLog} title="View Log" disabled={isAITurn} className="p-3 bg-slate-600 rounded-lg hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed">
+                <button onClick={onOpenLog} title="View Log" disabled={isAITurn} className="p-3 bg-surface-2 rounded-lg hover:bg-surface-3 disabled:bg-surface-3 disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
                 </button>
-                <button onClick={onNewGame} title="New Game" disabled={isAITurn} className="p-3 bg-red-800/80 rounded-lg hover:bg-red-700 disabled:bg-slate-700 disabled:cursor-not-allowed">
+                <button onClick={onNewGame} title="New Game" disabled={isAITurn} className="p-3 bg-red-500/80 rounded-lg hover:bg-red-600 disabled:bg-surface-3 disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </button>
             </div>
@@ -833,7 +833,7 @@ const GameUI: React.FC<{
                 settings={state.settings}
                 onItemAction={handleItemAction}
             />
-            <div className="flex-grow h-full flex flex-col bg-slate-800 p-4 sm:p-6 rounded-xl shadow-2xl border border-slate-700">
+            <div className="flex-grow h-full flex flex-col bg-surface-1 p-4 sm:p-6 rounded-xl shadow-lg border border-border">
                 <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar">
                     {state.storyLog.map((entry, index) =>
                         entry.type === 'ai' ? (
@@ -846,14 +846,14 @@ const GameUI: React.FC<{
                             />
                         ) : (
                             <div key={index} className="mb-8 animate-fade-in flex justify-end">
-                                <div className="max-w-[80%] bg-indigo-600/40 p-4 rounded-lg"><p className="text-indigo-100 italic">{entry.content}</p></div>
+                                <div className="max-w-[80%] bg-primary/40 p-4 rounded-lg"><p className="text-white italic">{entry.content}</p></div>
                             </div>
                         )
                     )}
-                    {state.error && <div className="text-red-400 p-4 bg-red-900/50 rounded-md">{state.error}</div>}
+                    {state.error && <div className="text-red-500 p-4 bg-red-500/50 rounded-md">{state.error}</div>}
                     <div ref={logEndRef} />
                 </div>
-                <div className="flex-shrink-0 mt-auto pt-4 border-t border-slate-700">
+                <div className="flex-shrink-0 mt-auto pt-4 border-t border-border">
                     <ChoiceAndInputPanel
                         isAITurn={isAITurn}
                         choices={choices}
@@ -866,7 +866,7 @@ const GameUI: React.FC<{
                         onOpenSettings={onOpenSettings}
                         onOpenLog={onOpenLog}
                         onNewGame={onNewGame}
-                        onSaveGame={onSaveGame}
+                        onSaveGame={handleSaveGame}
                         isSaving={isSaving}
                     />
                 </div>
@@ -1300,12 +1300,12 @@ const App: React.FC = () => {
                     return <GameUI
                         state={state} previousGameState={previousGameState} onPlayerAction={handlePlayerAction} onRegenerateResponse={handleRegenerateResponse} onUpdateCharacterImage={handleUpdateCharacterImage} onUpdateSceneImage={handleUpdateSceneImage} onUndo={() => previousGameState && loadGameFromState(previousGameState)} onOpenSettings={() => setIsSettingsModalOpen(true)} onOpenLog={() => setIsLogModalOpen(true)} onNewGame={handleNewGame} onOpenWorldKnowledge={() => setIsWorldModalOpen(true)} onSaveGame={handleSaveGame} isSaving={isSaving} />;
                 }
-                return <div className="flex items-center justify-center h-[85vh]"><div className="flex flex-col items-center space-y-2"><div className="flex items-center space-x-2"><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce"></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.15s'}}></div><div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0.3s'}}></div></div><span className="text-slate-400 font-serif text-center">{state.loadingMessage}</span></div></div>;
+                return <div className="flex items-center justify-center h-[85vh]"><div className="flex flex-col items-center space-y-2"><div className="flex items-center space-x-2"><div className="w-3 h-3 bg-primary rounded-full animate-bounce"></div><div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{animationDelay:'0.15s'}}></div><div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{animationDelay:'0.3s'}}></div></div><span className="text-text-muted font-serif text-center">{state.loadingMessage}</span></div></div>;
             case GamePhase.PLAYING:
                 return <GameUI
                     state={state} previousGameState={previousGameState} onPlayerAction={handlePlayerAction} onRegenerateResponse={handleRegenerateResponse} onUpdateCharacterImage={handleUpdateCharacterImage} onUpdateSceneImage={handleUpdateSceneImage} onUndo={() => previousGameState && loadGameFromState(previousGameState)} onOpenSettings={() => setIsSettingsModalOpen(true)} onOpenLog={() => setIsLogModalOpen(true)} onNewGame={handleNewGame} onOpenWorldKnowledge={() => setIsWorldModalOpen(true)} onSaveGame={handleSaveGame} isSaving={isSaving} />;
             case GamePhase.ERROR:
-                return <div className="text-red-400 p-4 bg-red-900/50 rounded-md"><h2>An Error Occurred</h2><p>{state.error}</p><button onClick={() => { if(previousGameState) { loadGameFromState(previousGameState) } else { handleNewGame() } }} className="mt-4 bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">Go Back</button></div>;
+                return <div className="text-red-500 p-4 bg-red-500/50 rounded-md"><h2>An Error Occurred</h2><p>{state.error}</p><button onClick={() => { if(previousGameState) { loadGameFromState(previousGameState) } else { handleNewGame() } }} className="mt-4 bg-primary text-white font-bold py-2 px-4 rounded-lg">Go Back</button></div>;
         }
     }
 
@@ -1316,9 +1316,9 @@ const App: React.FC = () => {
 
     return (
         <div className="min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8">
-            {notification && <div className="fixed top-5 right-5 bg-green-600 text-white py-2 px-4 rounded-lg shadow-lg z-[100] animate-fade-in-down">{notification}</div>}
+            {notification && <div className="fixed top-5 right-5 bg-accent text-white py-2 px-4 rounded-lg shadow-lg z-[100] animate-fade-in-down">{notification}</div>}
             <div id="background-container" style={{ backgroundImage: `url(${backgroundUrl})` }} className="fixed inset-0 bg-cover bg-center filter blur-sm scale-110 opacity-20 transition-all duration-[1500ms]" />
-            <header className="text-center w-full max-w-7xl mx-auto mb-6"><h1 className="text-4xl sm:text-5xl font-bold text-indigo-400 font-serif">CYOA Game Master</h1></header>
+            <header className="text-center w-full max-w-7xl mx-auto mb-6"><h1 className="text-4xl sm:text-5xl font-bold text-primary font-serif">CYOA Game Master</h1></header>
 
             {renderContent()}
             <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={state.settings} onSettingsChange={(newSettings) => dispatch({ type: 'UPDATE_SETTINGS', payload: newSettings })} />
