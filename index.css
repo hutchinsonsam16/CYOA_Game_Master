@@ -1,23 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
-  --background: #f0f4f8; /* A light, calming gray-blue background */
-  --surface-1: #ffffff; /* Pure white for primary content cards */
-  --surface-2: #e2e8f0; /* A light slate for secondary elements and borders */
-  --surface-3: #cbd5e1; /* A slightly darker slate for subtle dividers */
-  --primary: #4c51bf; /* Deep periwinkle for primary actions */
-  --primary-hover: #434190; /* A darker shade for hover states */
-  --accent: #10b981; /* A vibrant deep-sea green for highlights and success */
-  --text-main: #1f2937; /* Dark gray for main text, improving contrast */
-  --text-muted: #6b7280; /* Neutral gray for secondary text */
-  --border: #e2e8f0; /* A light slate for all borders */
+  --background: #0a0e1a; /* A very dark navy */
+  --surface-1: #131a2b; /* Dark blue-grey for main cards */
+  --surface-2: #222b40; /* Medium blue-grey for secondary elements */
+  --surface-3: #334155; /* A slate blue for subtle borders and highlights */
+  --primary: #60a5fa; /* A vibrant, cool blue for primary actions */
+  --primary-hover: #3b82f6; /* A darker shade for hover states */
+  --accent: #16a34a; /* A vibrant forest green for success */
+  --text-main: #e2e8f0; /* Light gray-blue for high readability on dark backgrounds */
+  --text-muted: #94a3b8; /* Medium gray-blue for secondary text */
+  --border: #334155; /* Slate blue for all borders */
 }
 body {
   background-color: var(--background);
   color: var(--text-main);
   font-family: 'Inter', sans-serif;
-}
-h1, h2, h3 {
-  color: var(--primary);
-  font-family: 'Lora', serif;
 }
 .font-serif {
   font-family: 'Lora', serif;
@@ -27,15 +27,14 @@ h1, h2, h3 {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--surface-2);
-  border-radius: 4px;
+  background: var(--surface-1);
 }
 ::-webkit-scrollbar-thumb {
   background: var(--surface-3);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8; /* slate-400 */
+  background: #64748b; /* slate-500 */
 }
 
 @keyframes fade-in {
