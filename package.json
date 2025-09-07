@@ -4,7 +4,7 @@
   "description": "An interactive, text-based Choose-Your-Own-Adventure (CYOA) game powered by AI.",
   "main": "electron.js",
   "scripts": {
-    "start": "node electron.js",
+    "start": "node_modules\\.bin\\electron .",
     "build": "mkdir -p dist && cp index.html sw.js manifest.json metadata.json dist/ && esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic",
     "electron:build": "npm run build && electron-builder",
     "android:sync": "npm run build && npx cap sync android",
