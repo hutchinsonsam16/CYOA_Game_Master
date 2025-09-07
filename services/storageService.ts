@@ -28,7 +28,7 @@ export const loadGameState = (): SavedGameState | null => {
         state.worldInfo = [];
     }
     if (!state.settings.aiServiceMode) {
-        state.settings.aiServiceMode = !!process.env.API_KEY ? 'GEMINI_API' : 'LOCAL';
+        state.settings.aiServiceMode = !!process.env.GEMINI_API_KEY ? 'GEMINI_API' : 'LOCAL';
     }
     if (!state.npcs) {
         state.npcs = [];
