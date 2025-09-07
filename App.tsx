@@ -9,9 +9,12 @@ import {
 } from './types';
 
 import { 
-  aiService, artStyles, alignments, buildSystemInstruction, enhanceWorldEntry, structureWorldDataWithAI, 
-  generateCharacterDetails, generateCharacterFlavor, generateImage, retrieveRelevantSnippets, formatWorldInfoToString, summarizeWorldData
-} from './services/geminiService';
+  llmService, alignments, buildSystemInstruction, enhanceWorldEntry, structureWorldDataWithAI, 
+  generateCharacterDetails, generateCharacterFlavor, retrieveRelevantSnippets, formatWorldInfoToString, summarizeWorldData
+} from './services/llmService';
+import { 
+  imageService, artStyles, generateImage
+} from './services/imageService';
 import { saveGameState, loadGameState, clearGameState } from './services/storageService';
 
 // ===================================================================================
@@ -49,7 +52,7 @@ const SetupScreen: React.FC<{
   const [isStructuringEntry, setIsStructuringEntry] = useState<number | null>(null);
   const [isFileLoading, setIsFileLoading] = useState(false);
   const [isWorldToolsModalOpen, setIsWorldToolsModalOpen] = useState(false);
-  const isApiKeyAvailable = !!process.env.API_KEY;
+  const isApiKeyAvailable = !!process.env.GEMINI_API_KEY;
 
   const [settings, setSettings] = useState<Settings>({
       artStyle: artStyles['Cinematic Film'],
@@ -371,7 +374,7 @@ const StatusSidebar: React.FC<{
   const latestPortrait = character.portraits[character.portraits.length - 1];
   const [activeItem, setActiveItem] = useState<InventoryItem | null>(null);
   const inventoryRef = useRef<HTMLDivElement>(null);
-  const isApiMode = settings.aiServiceMode === 'GEMINI_API' && !!process.env.API_KEY;
+  const isApiMode = settings.aiServiceMode === 'GEMINI_API' && !!process.env.GEMINI_API_KEY;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -467,7 +470,7 @@ const SettingsModal: React.FC<{
     onSettingsChange: (newSettings: Partial<Settings>) => void;
 }> = ({ isOpen, onClose, settings, onSettingsChange }) => {
     if (!isOpen) return null;
-    const isApiMode = settings.aiServiceMode === 'GEMINI_API' && !!process.env.API_KEY;
+    const isApiMode = settings.aiServiceMode === 'GEMINI_API' && !!process.env.GEMINI_API_KEY;
     
     const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
         onSettingsChange({ [key]: value });
@@ -877,7 +880,7 @@ const GameUI: React.FC<{
 //  STATE MANAGEMENT (useReducer)
 // ===================================================================================
 
-const hasApiKey = !!process.env.API_KEY;
+const hasApiKey = !!process.env.GEMINI_API_KEY;
 const initialState: AppState = {
     gamePhase: GamePhase.SETUP,
     storyLog: [],
@@ -976,15 +979,15 @@ const App: React.FC = () => {
     const [notification, setNotification] = useState<string | null>(null);
     
     const savedTurnIndex = useRef<number | null>(null);
-    const isApiMode = useMemo(() => state.settings.aiServiceMode === 'GEMINI_API' && !!process.env.API_KEY, [state.settings.aiServiceMode]);
+    const isApiMode = useMemo(() => state.settings.aiServiceMode === 'GEMINI_API' && !!process.env.GEMINI_API_KEY, [state.settings.aiServiceMode]);
 
     useEffect(() => {
         if (loadGameState()) {
             dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
         }
-        const apiKey = process.env.API_KEY;
+        const apiKey = process.env.GEMINI_API_KEY;
         if (apiKey) {
-            aiService.initializeGemini(apiKey).then(isValid => {
+            llmService.initializeGemini(apiKey).then(isValid => {
                 if (!isValid) {
                     const currentState = loadGameState() || initialState;
                     if (currentState.settings.aiServiceMode === 'GEMINI_API') {
@@ -994,6 +997,7 @@ const App: React.FC = () => {
                     }
                 }
             });
+            imageService.initializeGemini(apiKey);
         }
     }, []);
     
@@ -1001,7 +1005,7 @@ const App: React.FC = () => {
         if (!isApiMode || !state.settings.generateCharacterPortraits) return;
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: true });
         const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
-        const url = await generateImage(fullPrompt, state.settings.artStyle, '1:1');
+        const url = await imageService.generateImage(fullPrompt, state.settings.artStyle, '1:1');
         const newPortrait: CharacterPortrait = { prompt: description, url };
         dispatch({ type: 'UPDATE_CHARACTER', payload: { description, portraits: [...state.character.portraits, newPortrait] } });
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: false });
@@ -1059,7 +1063,7 @@ const App: React.FC = () => {
         result.content = content;
 
         if (result.imgPrompt && isApiMode && state.settings.generateSceneImages) {
-            result.imageUrl = await generateImage(result.imgPrompt, state.settings.artStyle, '16:9');
+            result.imageUrl = await imageService.generateImage(result.imgPrompt, state.settings.artStyle, '16:9');
         }
         
         return result;
@@ -1069,7 +1073,7 @@ const App: React.FC = () => {
         if (!action.trim() || state.gamePhase === GamePhase.LOADING) return;
 
         if (state.storyLog.length > 0) {
-            setPreviousGameState({ ...state, chatHistory: aiService.getHistory() });
+            setPreviousGameState({ ...state, chatHistory: llmService.getHistory() });
         }
         
         const currentInventory = state.inventory.map(i => i.name).join(', ') || 'Empty';
@@ -1085,7 +1089,7 @@ const App: React.FC = () => {
         try {
             let fullResponseText = '';
             if (state.settings.aiServiceMode === 'GEMINI_API') {
-                fullResponseText = await aiService.generateTextStream(message, (chunk) => {
+                fullResponseText = await llmService.generateTextStream(message, (chunk) => {
                     dispatch({ type: 'STREAM_CHUNK', payload: chunk });
                 });
             } else { // LOCAL MODE
@@ -1096,7 +1100,7 @@ const App: React.FC = () => {
                     if(progress.progress) msg += ` (${Math.round(progress.progress)}%)`;
                     dispatch({ type: 'SET_LOADING_MESSAGE', payload: msg });
                 }
-                fullResponseText = await aiService.generateText(systemInstruction, message, progressCallback);
+                fullResponseText = await llmService.generateText(systemInstruction, message, progressCallback);
             }
 
             const processed = await processFinalResponse(fullResponseText);
@@ -1152,12 +1156,12 @@ const App: React.FC = () => {
             dispatch({ type: 'START_NEW_GAME', payload: { worldInfo, worldSummary: summary, character: initialCharacter, settings } });
     
             const systemInstruction = buildSystemInstruction(summary, initialCharacter, settings);
-            aiService.startChat(settings.aiServiceMode, systemInstruction, []);
+            llmService.startChat(settings.aiServiceMode, systemInstruction, []);
             
             dispatch({ type: 'SET_LOADING_MESSAGE', payload: 'The story begins...' });
             handlePlayerAction(initialPrompt);
     
-            if(settings.aiServiceMode === 'GEMINI_API' && !!process.env.API_KEY) {
+            if(settings.aiServiceMode === 'GEMINI_API' && !!process.env.GEMINI_API_KEY) {
                 // Fire-and-forget character enhancement in the background
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, 100));
@@ -1201,12 +1205,12 @@ const App: React.FC = () => {
     const loadGameFromState = useCallback((savedState: SavedGameState | null) => {
         if (!savedState) return;
         savedTurnIndex.current = null;
-        if (savedState.settings.aiServiceMode === 'GEMINI_API' && !process.env.API_KEY) {
-            alert("This save requires a Gemini API key which is missing. Switching to local mode, which may affect story quality.");
+        if (savedState.settings.aiServiceMode === 'GEMINI_API' && !process.env.GEMINI_API_KEY) {
+            alert("This save requires a Gemini API key which is missing. Switched to local mode, which may affect story quality.");
             savedState.settings.aiServiceMode = 'LOCAL';
         }
         const systemInstruction = buildSystemInstruction(savedState.worldSummary, savedState.character, savedState.settings);
-        aiService.startChat(savedState.settings.aiServiceMode, systemInstruction, savedState.chatHistory);
+        llmService.startChat(savedState.settings.aiServiceMode, systemInstruction, savedState.chatHistory || []);
         dispatch({ type: 'LOAD_GAME', payload: savedState });
     }, []);
 
@@ -1214,7 +1218,7 @@ const App: React.FC = () => {
         if (state.storyLog.length === 0 || isSaving) return;
         setIsSaving(true);
         try {
-            saveGameState({ ...state, chatHistory: aiService.getHistory() });
+            saveGameState({ ...state, chatHistory: llmService.getHistory() });
             dispatch({ type: 'SET_HAS_SAVED_GAME', payload: true });
             setNotification("Game progress saved!");
         } catch (error: any) {
@@ -1250,7 +1254,7 @@ const App: React.FC = () => {
     const handleUpdateSceneImage = useCallback(async (index: number, prompt: string) => {
         if (!isApiMode) return;
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, isLoading: true }});
-        const newImageUrl = await generateImage(prompt, state.settings.artStyle, '16:9');
+        const newImageUrl = await imageService.generateImage(prompt, state.settings.artStyle, '16:9');
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, imageUrl: newImageUrl, isLoading: false }});
     }, [isApiMode, state.settings.artStyle]);
     
@@ -1282,7 +1286,7 @@ const App: React.FC = () => {
     const renderContent = () => {
         switch (state.gamePhase) {
             case GamePhase.SETUP:
-                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameFromState(loadGameState())} onLoadFromFile={handleLoadFromFile} hasSavedGame={state.hasSavedGame} />;
+                return <SetupScreen onStart={handleStartGame} onContinue={() => loadGameState() && loadGameFromState(loadGameState())} onLoadFromFile={handleLoadFromFile} hasSavedGame={state.hasSavedGame} />;
             case GamePhase.LOADING:
                  if (state.storyLog.length > 0) { // Show game UI even while loading next turn
                      return <GameUI 
