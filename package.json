@@ -5,7 +5,7 @@
   "main": "electron.js",
   "scripts": {
     "start": "node_modules\\.bin\\electron .",
-    "build": "shx rm -rf dist && shx mkdir dist && shx cp index.html sw.js manifest.json metadata.json dist/ && esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic --external:react --external:react-dom/client --external:react-markdown --external:remark-gfm --external:@xenova/transformers --external:@google/genai",
+    "build": "shx rm -rf dist && shx mkdir dist && shx cp index.html sw.js manifest.json metadata.json index.css dist/ && esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic",
     "electron:build": "npm run build && electron-builder",
     "android:sync": "npm run build && npx cap sync android",
     "android:open": "npx cap open android"
