@@ -22,12 +22,12 @@ import { saveGameState, loadGameState, clearGameState } from './services/storage
 // ===================================================================================
 
 const ProgressBar: React.FC<{ text: string }> = ({ text }) => (
-    <div className="my-2 text-center p-3 bg-surface-1 rounded-lg border border-surface-2">
+    <div className="my-2 text-center p-3 bg-surface-1 rounded-lg border border-border">
         <div className="flex items-center justify-center space-x-2">
             <svg className="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
             <span className="text-text-main font-semibold">{text}</span>
         </div>
-        <div className="w-full bg-surface-2 rounded-full h-1.5 mt-2 overflow-hidden">
+        <div className="w-full bg-surface-3 rounded-full h-1.5 mt-2 overflow-hidden">
             <div className="bg-primary h-1.5 rounded-full w-full animate-progress-indeterminate"></div>
         </div>
     </div>
@@ -181,7 +181,7 @@ const SetupScreen: React.FC<{
     };
 
     return (
-        <div className="w-full max-w-3xl bg-surface-1 p-6 sm:p-8 rounded-xl shadow-lg border border-border animate-fade-in">
+        <div className="w-full max-w-3xl bg-surface-1 p-6 sm:p-8 rounded-xl shadow-2xl border border-border animate-fade-in">
             <WorldDataToolsModal isOpen={isWorldToolsModalOpen} onClose={() => setIsWorldToolsModalOpen(false)} onLoadData={(data) => { processLoadedWorld(data); setIsWorldToolsModalOpen(false); }} isApiMode={isApiMode} />
             <div className="mb-6">
                 <div className="flex flex-col sm:flex-row gap-4">
@@ -189,21 +189,21 @@ const SetupScreen: React.FC<{
                     <input type="file" ref={saveFileInputRef} onChange={(e) => e.target.files && onLoadFromFile(e.target.files[0])} className="hidden" accept=".json" />
                     <button type="button" onClick={() => saveFileInputRef.current?.click()} className="flex-1 bg-primary text-white font-bold py-3 px-6 rounded-lg hover:bg-primary-hover transition-all">Load from File</button>
                 </div>
-                {hasSavedGame && <div className="my-4 flex items-center"><div className="flex-grow border-t border-surface-2"></div><span className="flex-shrink mx-4 text-text-muted">OR</span><div className="flex-grow border-t border-surface-2"></div></div>}
-                <h2 className="text-xl font-semibold text-primary mt-4 text-center">Start a New Story</h2>
+                {hasSavedGame && <div className="my-4 flex items-center"><div className="flex-grow border-t border-surface-3"></div><span className="flex-shrink mx-4 text-text-muted">OR</span><div className="flex-grow border-t border-surface-3"></div></div>}
+                <h2 className="text-xl font-semibold text-primary mt-4 text-center font-serif">Start a New Story</h2>
             </div>
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
                     <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-xl font-semibold text-primary">1. Build Your World Anvil</h3>
+                        <h3 className="text-xl font-semibold text-primary font-serif">1. Build Your World Anvil</h3>
                         <div className="flex items-center gap-4">
                             <button type="button" onClick={() => setIsWorldToolsModalOpen(true)} className="text-xs font-semibold text-accent hover:text-green-500">Merge Files</button>
                             <input type="file" ref={worldFileInputRef} onChange={(e) => e.target.files && handleLoadWorldFromFile(e.target.files[0])} className="hidden" accept=".txt,.md,.json" />
-                            <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-primary hover:text-indigo-400">Load File</button>
+                            <button type="button" onClick={() => worldFileInputRef.current?.click()} className="text-xs font-semibold text-primary hover:text-blue-400">Load File</button>
                         </div>
                     </div>
                     {isFileLoading && <ProgressBar text="Processing world file..." />}
-                    <div className={`space-y-2 bg-surface-2/50 border border-border rounded-lg p-2 ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <div className={`space-y-2 bg-surface-2 p-2 rounded-lg border border-border ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}>
                         {worldInfo.map((entry, index) => (
                             <div key={index} className="bg-surface-1 rounded">
                                 <button type="button" onClick={() => setOpenWorldEntry(openWorldEntry === index ? null : index)} className="w-full flex justify-between items-center p-3 text-left">
@@ -216,26 +216,26 @@ const SetupScreen: React.FC<{
                                         <textarea value={entry.content} onChange={(e) => updateWorldInfo(index, 'content', e.target.value)} placeholder="Describe the lore for this entry..." className="w-full h-32 bg-surface-2 border border-surface-3 rounded-md p-2 focus:ring-2 focus:ring-primary resize-y" />
                                         <div className="flex justify-between items-center">
                                             <div>
-                                                <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim() || isStructuringEntry !== null || !isApiMode} className="text-xs font-semibold text-primary hover:text-primary-hover disabled:text-text-muted disabled:cursor-not-allowed">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
+                                                <button type="button" onClick={() => handleEnhanceWorldEntry(index)} disabled={isEnhancing !== null || !entry.content.trim() || isStructuringEntry !== null || !isApiMode} className="text-xs font-semibold text-primary hover:text-blue-400 disabled:text-text-muted disabled:cursor-not-allowed">{isEnhancing === index ? 'Enhancing...' : 'Enhance with AI ✨'}</button>
                                                 {entry.isUnstructured && (
                                                     <button type="button" onClick={() => handleStructureEntry(index)} disabled={isStructuringEntry !== null || isEnhancing !== null || !isApiMode} className="ml-4 text-xs font-semibold text-accent hover:text-green-500 disabled:text-text-muted disabled:cursor-not-allowed">
                                                         {isStructuringEntry === index ? 'Structuring...' : 'Structure with AI 🤖'}
                                                     </button>
                                                 )}
                                             </div>
-                                            <button type="button" onClick={() => removeWorldInfoEntry(index)} className="text-xs font-semibold text-red-500 hover:text-red-600">Delete Entry</button>
+                                            <button type="button" onClick={() => removeWorldInfoEntry(index)} className="text-xs font-semibold text-red-400 hover:text-red-300">Delete Entry</button>
                                         </div>
                                         {!isApiMode && <p className="text-xs text-text-muted mt-1">AI world tools require Gemini API Mode.</p>}
                                     </div>
                                 )}
                             </div>
                         ))}
-                        <button type="button" onClick={addWorldInfoEntry} className="w-full bg-surface-2 text-text-main font-semibold py-2 rounded hover:bg-surface-3 transition">Add Lore Entry</button>
+                        <button type="button" onClick={addWorldInfoEntry} className="w-full bg-surface-3 text-text-main font-semibold py-2 rounded hover:bg-surface-3/50 transition">Add Lore Entry</button>
                     </div>
                     <p className="text-xs text-text-muted mt-1">For large worlds (API Mode), a summary will be automatically generated when you load a file.</p>
                 </div>
                 <div>
-                    <h3 className="text-xl font-semibold text-primary mb-2">2. Create Your Character</h3>
+                    <h3 className="text-xl font-semibold text-primary mb-2 font-serif">2. Create Your Character</h3>
                     <input type="text" value={characterPrompt} onChange={(e) => setCharacterPrompt(e.target.value)} placeholder="Describe your character's appearance..." className="w-full bg-surface-2 border border-border rounded-md p-4 mb-4 focus:ring-2 focus:ring-primary transition" required />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -259,11 +259,11 @@ const SetupScreen: React.FC<{
                     </div>
                 </div>
                 <div>
-                    <h3 className="text-xl font-semibold text-primary mb-2">3. Set The Scene</h3>
+                    <h3 className="text-xl font-semibold text-primary mb-2 font-serif">3. Set The Scene</h3>
                     <input type="text" value={initialPrompt} onChange={(e) => setInitialPrompt(e.target.value)} placeholder="Describe your character's starting situation..." className="w-full bg-surface-2 border border-border rounded-md p-4 focus:ring-2 focus:ring-primary transition" required />
                 </div>
                 <div>
-                    <h3 className="text-xl font-semibold text-primary mb-2">4. Gameplay Settings</h3>
+                    <h3 className="text-xl font-semibold text-primary mb-2 font-serif">4. Gameplay Settings</h3>
                     <div className="space-y-3 bg-surface-2 p-4 rounded-lg border border-border">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -290,6 +290,7 @@ const SetupScreen: React.FC<{
                         <div className="pt-2 border-t border-border/50 space-y-2">
                             <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-text-muted' : 'text-text-main'}`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
                             <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-text-muted' : 'text-text-main'}`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
+                            <label className="flex items-center justify-between cursor-pointer"><span className="text-text-main">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary" /></label>
                         </div>
                     </div>
                 </div>
@@ -319,7 +320,7 @@ const StoryBlock: React.FC<{
                         {entry.imageUrl ? <img src={entry.imageUrl} alt="A scene from the story" className="w-full h-full object-cover" /> :
                             <div className="p-4 text-center"><h3 className="font-semibold text-text-main">{isApiMode ? 'Image Generation Failed' : 'Scene Image Generation Disabled'}</h3><p className="text-text-muted text-xs mt-1">{isApiMode ? 'The prompt may have been blocked by safety filters.' : 'Enable scene image generation in settings (requires API Mode).'}</p></div>}
                     </div>
-                    {entry.isImageLoading && <div className="absolute inset-0 bg-text-main/70 flex items-center justify-center rounded-lg"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>}
+                    {entry.isImageLoading && <div className="absolute inset-0 bg-background/70 flex items-center justify-center rounded-lg"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>}
                     {!entry.isImageLoading && entry.imgPrompt && settings.generateSceneImages && isApiMode && <button onClick={onRegenerateImage} className="absolute bottom-3 right-3 bg-primary/80 text-white text-xs font-bold py-1 px-3 rounded-full hover:bg-primary-hover backdrop-blur-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity">↻ Regenerate</button>}
                 </div>
             }
@@ -343,7 +344,7 @@ const NpcDisplay: React.FC<{ npc: NPC }> = ({ npc }) => {
     return (
         <div className="bg-surface-2 p-3 rounded-lg text-sm group relative">
             <div className="flex justify-between items-center">
-                <p className={`font-bold flex items-center gap-1.5 ${npc.isHostile ? 'text-red-500' : 'text-primary'}`}>
+                <p className={`font-bold flex items-center gap-1.5 ${npc.isHostile ? 'text-red-400' : 'text-primary'}`}>
                     {npc.isHostile && <span title="Hostile">⚔️</span>}
                     <span>{npc.name}</span>
                 </p>
@@ -387,13 +388,13 @@ const StatusSidebar: React.FC<{
     }, []);
 
     return (
-        <div className="w-full lg:w-1/3 lg:max-w-sm flex-shrink-0 flex flex-col bg-surface-1 p-4 rounded-xl shadow-lg border border-border">
+        <div className="w-full lg:w-1/3 lg:max-w-sm flex-shrink-0 flex flex-col bg-surface-1 p-4 rounded-xl shadow-2xl border border-border">
             <div className="flex justify-between items-center mb-2 border-b-2 border-border pb-2">
                 <h2 className="text-xl font-bold text-primary font-serif">Character</h2>
             </div>
 
             <div className="group relative aspect-square w-full bg-surface-2 rounded-md flex items-center justify-center border border-border overflow-hidden">
-                {isImageLoading ? <div className="absolute inset-0 bg-text-main/70 flex items-center justify-center z-20"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" className="opacity-75"></path></svg></div> :
+                {isImageLoading ? <div className="absolute inset-0 bg-background/70 flex items-center justify-center z-20"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" className="opacity-75"></path></svg></div> :
                     latestPortrait?.url ? <img src={latestPortrait.url} alt="Character portrait" className="w-full h-full object-cover" /> :
                         <div className="p-4 text-center text-text-muted">{settings.generateCharacterPortraits && isApiMode ? 'No portrait generated.' : 'Character Portrait Generation Disabled.'}</div>
                 }
@@ -477,8 +478,8 @@ const SettingsModal: React.FC<{
     };
 
     return (
-        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-surface-1 w-full max-w-md rounded-lg shadow-xl border border-border p-6 space-y-6" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-background/70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-md rounded-lg shadow-2xl border border-border p-6 space-y-6" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-primary font-serif">Settings</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
                 <div>
                     <label className="block text-lg font-semibold text-primary mb-2">Art Style</label>
@@ -492,7 +493,7 @@ const SettingsModal: React.FC<{
                         {Object.values(GameMasterMode).map((mode) => (<option key={mode} value={mode}>{mode}</option>))}
                     </select>
                 </div>
-                <div className="space-y-3 pt-4 border-t border-border/50">
+                <div className="space-y-3 pt-4 border-t border-border">
                     <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-text-muted' : 'text-text-main'}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} disabled={!isApiMode} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
                     <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-text-muted' : 'text-text-main'}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} disabled={!isApiMode} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
                     <label className="flex items-center justify-between cursor-pointer"><span className="text-text-main">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
@@ -535,14 +536,14 @@ const WorldKnowledgeModal: React.FC<{
     };
 
     return (
-        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-surface-1 w-full max-w-3xl h-[80vh] rounded-lg shadow-xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-background/70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-3xl h-[80vh] rounded-lg shadow-2xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center flex-shrink-0"><h2 className="text-2xl font-bold text-accent font-serif">Search World Lore</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
                 <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search for locations, characters, events..." className="w-full bg-surface-2 border border-border rounded-md p-3 my-4 focus:ring-2 focus:ring-accent" autoFocus />
                 <div className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2">
                     {results.length > 0 ? (
                         results.map((entry, i) => (
-                            <div key={i} className="mb-4 p-4 bg-surface-2/50 border border-border rounded-md">
+                            <div key={i} className="mb-4 p-4 bg-surface-2 rounded-md">
                                 <h3 className="text-lg font-bold text-primary mb-2" dangerouslySetInnerHTML={{ __html: highlight(entry.key) }} />
                                 <p className="text-text-main whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: highlight(entry.content) }} />
                             </div>
@@ -626,8 +627,8 @@ const WorldDataToolsModal: React.FC<{
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-surface-1 w-full max-w-2xl rounded-lg shadow-xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-background/70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-2xl rounded-lg shadow-2xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-accent font-serif">Merge & Process Lore Files</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
                 <div className="flex-grow space-y-4">
                     <div>
@@ -636,12 +637,12 @@ const WorldDataToolsModal: React.FC<{
                             <span className="text-text-muted">Click to select files (.json, .txt, .md)</span>
                         </button>
                     </div>
-                    {files.length > 0 && <div className="text-sm bg-surface-2/50 p-3 rounded-md"><ul>{files.map((f, i) => <li key={i} className="text-text-main truncate">{f.name}</li>)}</ul></div>}
+                    {files.length > 0 && <div className="text-sm bg-surface-2 p-3 rounded-md"><ul>{files.map((f, i) => <li key={i} className="text-text-main truncate">{f.name}</li>)}</ul></div>}
                     <label className={`flex items-center gap-3 ${isApiMode ? 'cursor-pointer' : 'cursor-not-allowed'}`}><input type="checkbox" checked={enhanceWithAI} onChange={e => setEnhanceWithAI(e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-border bg-surface-2 text-accent focus:ring-accent disabled:cursor-not-allowed" /><span className={!isApiMode ? 'text-text-muted' : ''}>Enhance text-based lore with AI ✨ (slower)</span></label>
                     {!isApiMode && <p className="text-xs text-text-muted">AI Structuring & Enhancing requires Gemini API Mode.</p>}
                     {isProcessing && <ProgressBar text="Processing files... This may take a moment." />}
-                    {error && <div className="p-3 bg-red-500/50 text-red-100 rounded-md">{error}</div>}
-                    {processedData && <div className="p-3 bg-accent/50 text-green-100 rounded-md">Successfully processed {files.length} files and generated {processedData.length} lore entries.</div>}
+                    {error && <div className="p-3 bg-red-800/50 text-red-300 rounded-md">{error}</div>}
+                    {processedData && <div className="p-3 bg-accent/50 text-green-200 rounded-md">Successfully processed {files.length} files and generated {processedData.length} lore entries.</div>}
 
                     <div className="pt-4 border-t border-border flex flex-col sm:flex-row gap-4">
                         <button onClick={processAndMergeFiles} disabled={isProcessing || files.length === 0} className="flex-1 bg-accent text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:bg-surface-3">Process Files</button>
@@ -678,11 +679,11 @@ const GameLogModal: React.FC<{
         const { type, details } = event;
         if (type === 'skill-check') {
             const isSuccess = details.Result?.toLowerCase() === 'success';
-            return <div className={`my-2 p-2 rounded-md border text-xs ${isSuccess ? 'bg-accent/50 border-accent/50 text-white' : 'bg-red-500/50 border-red-500/50 text-white'}`}><strong>SKILL CHECK: {details.Skill || 'N/A'}</strong> - Result: {details.Result || 'N/A'} (Target: {details.Target || '?'})</div>;
+            return <div className={`my-2 p-2 rounded-md border text-xs ${isSuccess ? 'bg-accent/50 border-accent/50 text-white' : 'bg-red-800/50 border-red-800/50 text-white'}`}><strong>SKILL CHECK: {details.Skill || 'N/A'}</strong> - Result: {details.Result || 'N/A'} (Target: {details.Target || '?'})</div>;
         }
         if (type === 'combat') {
             const isHit = details.Result?.toLowerCase() === 'hit';
-            return <div className={`my-2 p-2 rounded-md border text-xs ${isHit ? 'bg-yellow-500/50 border-yellow-500/50 text-white' : 'bg-surface-2/50 border-border/50 text-text-main'}`}><strong>COMBAT: {details.Event || 'Action'}</strong> on {details.Target || 'Target'} - {isHit ? `HIT for ${details.Damage || '?'} dmg` : 'MISS'} (Roll: {details.Roll || '?'})</div>;
+            return <div className={`my-2 p-2 rounded-md border text-xs ${isHit ? 'bg-yellow-800/50 border-yellow-800/50 text-white' : 'bg-surface-2/50 border-border/50 text-text-main'}`}><strong>COMBAT: {details.Event || 'Action'}</strong> on {details.Target || 'Target'} - {isHit ? `HIT for ${details.Damage || '?'} dmg` : 'MISS'} (Roll: {details.Roll || '?'})</div>;
         }
         return null;
     };
@@ -690,8 +691,8 @@ const GameLogModal: React.FC<{
     let turnCounter = 0;
 
     return (
-        <div className="fixed inset-0 bg-text-main bg-opacity-70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-surface-1 w-full max-w-3xl h-[80vh] rounded-lg shadow-xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-background/70 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-surface-1 w-full max-w-3xl h-[80vh] rounded-lg shadow-2xl border border-border p-6 flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center flex-shrink-0 mb-4"><h2 className="text-2xl font-bold text-primary font-serif">Game Log</h2><button onClick={onClose} className="text-text-muted hover:text-text-main text-3xl leading-none">&times;</button></div>
                 <div ref={scrollRef} className="flex-grow overflow-y-auto custom-scrollbar pr-2 -mr-2 space-y-4">
                     {storyLog.map((entry, index) => {
@@ -702,7 +703,7 @@ const GameLogModal: React.FC<{
                             <div key={index}>
                                 {isNewTurn && <div className="flex items-center my-4"><div className="flex-grow border-t border-border"></div><span className="flex-shrink mx-4 text-text-muted font-bold">Turn {turnCounter}</span><div className="flex-grow border-t border-border"></div></div>}
                                 {entry.type === 'player' ? (
-                                    <div className="flex justify-end"><div className="bg-primary/40 p-3 rounded-lg max-w-[80%]"><p className="text-white italic">{cleanedText}</p></div></div>
+                                    <div className="flex justify-end"><div className="bg-primary/40 p-3 rounded-lg max-w-[80%]"><p className="text-text-main italic">{cleanedText}</p></div></div>
                                 ) : (
                                     <div className="bg-surface-2/50 p-3 rounded-lg">
                                         {events.map((evt, i) => <EventDisplay key={i} event={evt} />)}
@@ -777,7 +778,7 @@ const ChoiceAndInputPanel: React.FC<{
                 <button onClick={onOpenLog} title="View Log" disabled={isAITurn} className="p-3 bg-surface-2 rounded-lg hover:bg-surface-3 disabled:bg-surface-3 disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
                 </button>
-                <button onClick={onNewGame} title="New Game" disabled={isAITurn} className="p-3 bg-red-500/80 rounded-lg hover:bg-red-600 disabled:bg-surface-3 disabled:cursor-not-allowed">
+                <button onClick={onNewGame} title="New Game" disabled={isAITurn} className="p-3 bg-red-800/80 rounded-lg hover:bg-red-700 disabled:bg-surface-3 disabled:cursor-not-allowed">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </button>
             </div>
@@ -833,7 +834,7 @@ const GameUI: React.FC<{
                 settings={state.settings}
                 onItemAction={handleItemAction}
             />
-            <div className="flex-grow h-full flex flex-col bg-surface-1 p-4 sm:p-6 rounded-xl shadow-lg border border-border">
+            <div className="flex-grow h-full flex flex-col bg-surface-1 p-4 sm:p-6 rounded-xl shadow-2xl border border-border">
                 <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar">
                     {state.storyLog.map((entry, index) =>
                         entry.type === 'ai' ? (
@@ -846,11 +847,11 @@ const GameUI: React.FC<{
                             />
                         ) : (
                             <div key={index} className="mb-8 animate-fade-in flex justify-end">
-                                <div className="max-w-[80%] bg-primary/40 p-4 rounded-lg"><p className="text-white italic">{entry.content}</p></div>
+                                <div className="max-w-[80%] bg-primary/40 p-4 rounded-lg"><p className="text-text-main italic">{entry.content}</p></div>
                             </div>
                         )
                     )}
-                    {state.error && <div className="text-red-500 p-4 bg-red-500/50 rounded-md">{state.error}</div>}
+                    {state.error && <div className="text-red-400 p-4 bg-red-800/50 rounded-md">{state.error}</div>}
                     <div ref={logEndRef} />
                 </div>
                 <div className="flex-shrink-0 mt-auto pt-4 border-t border-border">
@@ -865,7 +866,7 @@ const GameUI: React.FC<{
                         onUndo={onUndo}
                         onOpenSettings={onOpenSettings}
                         onOpenLog={onOpenLog}
-                        onNewGame={onNewGame}
+                        onNewGame={handleNewGame}
                         onSaveGame={handleSaveGame}
                         isSaving={isSaving}
                     />
@@ -1199,7 +1200,7 @@ const App: React.FC = () => {
                     const characterForFlavor = { ...initialCharacter, ...characterUpdates };
                     const flavor = await generateCharacterFlavor(characterForFlavor);
                     const flavorUpdates: Partial<Character> = { class: flavor.class || characterForFlavor.class };
-                    if (flavor.quirk) flavorUpdates.backstory = `${characterForFlavor.backstory}\n\n**Quirk:** ${flavor.quirk}`;
+                    if (flavor.quirk) flavorUpdates.backstory = `${characterForFlavor.backstory}\n\n**Quirk:** ${characterForFlavor.backstory ? '---\n\n' : ''}${flavor.quirk}`;
                     if (flavor.class !== characterForFlavor.class || flavor.quirk) dispatch({ type: 'UPDATE_CHARACTER', payload: flavorUpdates });
                 })();
             }
@@ -1305,7 +1306,7 @@ const App: React.FC = () => {
                 return <GameUI
                     state={state} previousGameState={previousGameState} onPlayerAction={handlePlayerAction} onRegenerateResponse={handleRegenerateResponse} onUpdateCharacterImage={handleUpdateCharacterImage} onUpdateSceneImage={handleUpdateSceneImage} onUndo={() => previousGameState && loadGameFromState(previousGameState)} onOpenSettings={() => setIsSettingsModalOpen(true)} onOpenLog={() => setIsLogModalOpen(true)} onNewGame={handleNewGame} onOpenWorldKnowledge={() => setIsWorldModalOpen(true)} onSaveGame={handleSaveGame} isSaving={isSaving} />;
             case GamePhase.ERROR:
-                return <div className="text-red-500 p-4 bg-red-500/50 rounded-md"><h2>An Error Occurred</h2><p>{state.error}</p><button onClick={() => { if(previousGameState) { loadGameFromState(previousGameState) } else { handleNewGame() } }} className="mt-4 bg-primary text-white font-bold py-2 px-4 rounded-lg">Go Back</button></div>;
+                return <div className="text-red-400 p-4 bg-red-800/50 rounded-md"><h2>An Error Occurred</h2><p>{state.error}</p><button onClick={() => { if(previousGameState) { loadGameFromState(previousGameState) } else { handleNewGame() } }} className="mt-4 bg-primary text-white font-bold py-2 px-4 rounded-lg">Go Back</button></div>;
         }
     }
 
