@@ -1,18 +1,23 @@
 :root {
-  --background: #0f172a; /* slate-900 */
-  --surface-1: #1e293b; /* slate-800 */
-  --surface-2: #334155; /* slate-700 */
-  --surface-3: #475569; /* slate-600 */
-  --primary: #6366f1; /* indigo-500 */
-  --primary-hover: #4f46e5; /* indigo-600 */
-  --text-main: #e2e8f0; /* slate-200 */
-  --text-muted: #94a3b8; /* slate-400 */
-  --border: #334155; /* slate-700 */
+  --background: #f0f4f8; /* A light, calming gray-blue background */
+  --surface-1: #ffffff; /* Pure white for primary content cards */
+  --surface-2: #e2e8f0; /* A light slate for secondary elements and borders */
+  --surface-3: #cbd5e1; /* A slightly darker slate for subtle dividers */
+  --primary: #4c51bf; /* Deep periwinkle for primary actions */
+  --primary-hover: #434190; /* A darker shade for hover states */
+  --accent: #10b981; /* A vibrant deep-sea green for highlights and success */
+  --text-main: #1f2937; /* Dark gray for main text, improving contrast */
+  --text-muted: #6b7280; /* Neutral gray for secondary text */
+  --border: #e2e8f0; /* A light slate for all borders */
 }
 body {
   background-color: var(--background);
   color: var(--text-main);
   font-family: 'Inter', sans-serif;
+}
+h1, h2, h3 {
+  color: var(--primary);
+  font-family: 'Lora', serif;
 }
 .font-serif {
   font-family: 'Lora', serif;
@@ -22,14 +27,15 @@ body {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--surface-1);
+  background: var(--surface-2);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--surface-3);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b; /* slate-500 */
+  background: #94a3b8; /* slate-400 */
 }
 
 @keyframes fade-in {
