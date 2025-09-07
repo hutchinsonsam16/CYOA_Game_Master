@@ -7,9 +7,9 @@ import { GameMasterMode, type WorldInfoEntry, type Character, type CharacterInpu
 // ===================================================================================
 
 export const alignments = [
-  'Lawful Good', 'Neutral Good', 'Chaotic Good',
-  'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
-  'Lawful Evil', 'Neutral Evil', 'Chaotic Evil'
+    'Lawful Good', 'Neutral Good', 'Chaotic Good',
+    'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
+    'Lawful Evil', 'Neutral Evil', 'Chaotic Evil'
 ];
 
 // ===================================================================================
@@ -17,24 +17,24 @@ export const alignments = [
 // ===================================================================================
 
 const withRetry = async <T,>(apiCall: () => Promise<T>, maxRetries = 3, initialDelay = 1000): Promise<T> => {
-  let attempt = 1;
-  let delay = initialDelay;
-  while (attempt <= maxRetries) {
-    try {
-      return await apiCall();
-    } catch (error: any) {
-      const isRateLimitError = error.toString().includes('429') || error.toString().toLowerCase().includes('rate limit') || error.toString().toLowerCase().includes('resource_exhausted');
-      if (isRateLimitError && attempt < maxRetries) {
-        console.warn(`Rate limit hit. Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2;
-        attempt++;
-      } else {
-        throw error;
-      }
+    let attempt = 1;
+    let delay = initialDelay;
+    while (attempt <= maxRetries) {
+        try {
+            return await apiCall();
+        } catch (error: any) {
+            const isRateLimitError = error.toString().includes('429') || error.toString().toLowerCase().includes('rate limit') || error.toString().toLowerCase().includes('resource_exhausted');
+            if (isRateLimitError && attempt < maxRetries) {
+                console.warn(`Rate limit hit. Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2;
+                attempt++;
+            } else {
+                throw error;
+            }
+        }
     }
-  }
-  throw new Error('Exceeded maximum retry attempts');
+    throw new Error('Exceeded maximum retry attempts');
 };
 
 type AiServiceMode = 'LOCAL' | 'GEMINI_API';
@@ -59,7 +59,7 @@ class LlmService {
     public isGeminiReady(): boolean { return !!this.geminiAi; }
 
     public async initializeGemini(apiKey: string): Promise<boolean> {
-        if (!apiKey) { this.geminiAi = null; return false; }
+        if (!apiKey) { this.geminiAi = null; this.mode = 'LOCAL'; return false; }
         try {
             const ai = new GoogleGenAI({ apiKey });
             await withRetry(() => ai.models.gemini25Flash().generateContent({ contents: [{ role: 'user', parts: [{ text: 'test' }] }] }));
@@ -71,10 +71,10 @@ class LlmService {
             return false;
         }
     }
-    
+
     private async initializeLocalModel(progressCallback: (progress: any) => void) {
         if (this.localGenerator && this.localTokenizer) return;
-        
+
         const modelId = 'Xenova/phi-3-mini-4k-instruct_gguf';
         progressCallback({ status: `Downloading Tokenizer (${modelId})...` });
         this.localTokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: progressCallback });
@@ -101,7 +101,7 @@ class LlmService {
     public getHistory(): Content[] {
         return this.history;
     }
-    
+
     public async generateTextStream(message: string, onChunk: (chunk: string) => void): Promise<string> {
         if (this.mode !== 'GEMINI_API' || !this.geminiChat) {
             throw new Error("Streaming is only supported in Gemini API mode.");
@@ -120,7 +120,7 @@ class LlmService {
 
     public async generateText(systemInstruction: string, message: string, progressCallback: (progress: any) => void): Promise<string> {
         if (this.mode !== 'LOCAL') throw new Error("Non-streaming generation is only for Local mode.");
-        
+
         await this.initializeLocalModel(progressCallback);
         this.history.push({ role: 'user', parts: [{ text: message }] });
 
@@ -134,15 +134,15 @@ class LlmService {
         ];
 
         const formattedPrompt = this.localTokenizer.apply_chat_template(chatHistory, { tokenize: false, add_generation_prompt: true });
-        
+
         progressCallback({ status: 'Generating response...', file: 'Running model...' });
         const result = await this.localGenerator(formattedPrompt, { max_new_tokens: 512, do_sample: true, temperature: 0.7, top_k: 50 });
         const assistantResponse = result[0].generated_text.split('<|assistant|>').pop()?.trim() ?? '';
-        
+
         this.history.push({ role: 'model', parts: [{ text: assistantResponse }] });
         return assistantResponse;
     }
-    
+
     public async apiCall<T>(apiFn: (ai: GoogleGenAI) => Promise<T>): Promise<T | null> {
         if (!this.isGeminiReady()) {
             console.warn("API call attempted without a valid Gemini API key.");
@@ -176,15 +176,15 @@ export const summarizeWorldData = async (worldInfo: WorldInfoEntry[]): Promise<s
 }
 
 export const buildSystemInstruction = (worldSummary: string, character: Omit<Character, 'portraits'>, settings: Omit<Settings, 'generateSceneImages' | 'generateCharacterPortraits' | 'dynamicBackgrounds' | 'aiServiceMode'>): string => {
-  const getModeInstruction = (mode: GameMasterMode): string => {
-    switch (mode) {
-      case GameMasterMode.NARRATIVE: return "Prioritize deep character development, rich world-building, and descriptive prose. Focus on dialogue, relationships, and the emotional journey.";
-      case GameMasterMode.ACTION: return "Prioritize fast-paced events, high-stakes conflicts, and challenging scenarios. Keep the story moving with frequent combat, puzzles, and dangerous encounters.";
-      default: return "Maintain a balanced pace, blending rich storytelling and character interaction with exciting moments of action and challenge.";
+    const getModeInstruction = (mode: GameMasterMode): string => {
+        switch (mode) {
+            case GameMasterMode.NARRATIVE: return "Prioritize deep character development, rich world-building, and descriptive prose. Focus on dialogue, relationships, and the emotional journey.";
+            case GameMasterMode.ACTION: return "Prioritize fast-paced events, high-stakes conflicts, and challenging scenarios. Keep the story moving with frequent combat, puzzles, and dangerous encounters.";
+            default: return "Maintain a balanced pace, blending rich storytelling and character interaction with exciting moments of action and challenge.";
+        }
     }
-  }
-  
-  return `
+
+    return `
 You are a master storyteller and game master for an interactive text-based CYOA game.
 Your Game Master mode is: ${settings.gmMode}. ${getModeInstruction(settings.gmMode)}
 --- CORE RULES ---
@@ -217,7 +217,9 @@ Your Game Master mode is: ${settings.gmMode}. ${getModeInstruction(settings.gmMo
 export const enhanceWorldEntry = async (text: string): Promise<string> => {
     if (!text.trim()) return text;
     const prompt = `You are a creative writing assistant and world-builder. Take the following piece of lore and expand upon it. Add evocative details, sensory information, and intriguing hooks, but remain faithful to the original core concept. Make it more vivid and engaging for a fantasy story. Output ONLY the enhanced text.\n\n--- USER LORE ---\n${text}`;
-    const response = await llmService.apiCall(ai => ai.models.gemini25Flash().generateContent({ contents: [{ role: "user", parts: [{ text: prompt }] }] }));
+    const response = await llmService.apiCall(ai => ai.models.gemini25Flash().generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
+    }));
     return response?.text.trim() || text;
 };
 
