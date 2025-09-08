@@ -75,7 +75,7 @@ class LlmService {
         if (this.localGenerator) return;
 
         // Set the path to the local Models folder
-        env.localModelPath = './Models';
+        env.localModelPath = (window as any).electronAPI.localModelPath;
         // Disable remote downloads to ensure the local folder is used
         env.allowRemoteModels = false;
 
@@ -238,7 +238,7 @@ export const enhanceWorldEntry = async (text: string): Promise<string> => {
         contents: [{ role: "user", parts: [{ text: prompt }] }]
     }));
     return response?.text.trim() || text;
-};
+}
 
 export const structureWorldDataWithAI = async (text: string): Promise<WorldInfoEntry[]> => {
     if (!text.trim()) return [];
