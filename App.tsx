@@ -866,8 +866,8 @@ const GameUI: React.FC<{
                         onUndo={onUndo}
                         onOpenSettings={onOpenSettings}
                         onOpenLog={onOpenLog}
-                        onNewGame={handleNewGame}
-                        onSaveGame={handleSaveGame}
+                        onNewGame={onNewGame}
+                        onSaveGame={onSaveGame}
                         isSaving={isSaving}
                     />
                 </div>
@@ -1329,7 +1329,7 @@ const App: React.FC = () => {
             {renderContent()}
             <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={state.settings} onSettingsChange={(newSettings) => dispatch({ type: 'UPDATE_SETTINGS', payload: newSettings })} />
             <WorldKnowledgeModal isOpen={isWorldModalOpen} onClose={() => setIsWorldModalOpen(false)} worldInfo={state.worldInfo} />
-            <GameLogModal isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)} storyLog={state.storyLog} />
+            <GameLogModal isOpen={isLogModalOpen} onClose={() => setIsLogModalModalOpen(false)} storyLog={state.storyLog} />
         </div>
     );
 };
