@@ -80,14 +80,13 @@ class LlmService {
         // Disable remote downloads to ensure the local folder is used
         env.allowRemoteModels = false;
 
-        const modelId = 'microsoft/Phi-3-mini-4k-instruct-gguf';
-        progressCallback({ status: `Loading Tokenizer (${modelId})...` });
+        const modelId = 'Phi-3-mini-4k-instruct-q4.gguf';
+        progressCallback({ status: `Loading Tokenizer for (${modelId})...` });
         this.localTokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: progressCallback });
 
         progressCallback({ status: `Loading Model (${modelId})...` });
         this.localGenerator = await pipeline('text-generation', modelId, {
             progress_callback: progressCallback,
-            quantization: 'q4',
         } as any);
     }
 
