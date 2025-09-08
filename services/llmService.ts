@@ -75,7 +75,10 @@ class LlmService {
     private async initializeLocalModel(progressCallback: (progress: any) => void) {
         if (this.localGenerator && this.localTokenizer) return;
 
-        const modelId = 'Xenova/phi-3-mini-4k-instruct_gguf';
+        // Correct model path as provided.
+        // NOTE: This model likely requires a Hugging Face token. You must set it in your environment
+        // variables as HUGGING_FACE_HUB_TOKEN or HF_TOKEN.
+        const modelId = 'microsoft/Phi-3-mini-4k-instruct-gguf';
         progressCallback({ status: `Downloading Tokenizer (${modelId})...` });
         this.localTokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: progressCallback });
 
