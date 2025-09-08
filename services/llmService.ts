@@ -1,5 +1,5 @@
 import { GoogleGenAI, Chat, Content, GenerateContentResponse, Type } from "@google/genai";
-import { pipeline, AutoTokenizer } from '@xenova/transformers';
+import { pipeline, AutoTokenizer, env } from '@xenova/transformers';
 import { GameMasterMode, type WorldInfoEntry, type Character, type CharacterInput, type Settings } from '../types';
 
 // ===================================================================================
@@ -75,14 +75,16 @@ class LlmService {
     private async initializeLocalModel(progressCallback: (progress: any) => void) {
         if (this.localGenerator && this.localTokenizer) return;
 
-        // Correct model path as provided.
-        // NOTE: This model likely requires a Hugging Face token. You must set it in your environment
-        // variables as HUGGING_FACE_HUB_TOKEN or HF_TOKEN.
+        // Set the path to the local Models folder
+        env.localModelPath = './Models';
+        // Disable remote downloads to ensure the local folder is used
+        env.allowRemoteModels = false;
+
         const modelId = 'microsoft/Phi-3-mini-4k-instruct-gguf';
-        progressCallback({ status: `Downloading Tokenizer (${modelId})...` });
+        progressCallback({ status: `Loading Tokenizer (${modelId})...` });
         this.localTokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: progressCallback });
 
-        progressCallback({ status: `Downloading Model (${modelId})...` });
+        progressCallback({ status: `Loading Model (${modelId})...` });
         this.localGenerator = await pipeline('text-generation', modelId, {
             progress_callback: progressCallback,
             quantization: 'q4',
