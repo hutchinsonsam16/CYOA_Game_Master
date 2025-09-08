@@ -1,5 +1,5 @@
 import { GoogleGenAI, Chat, Content, GenerateContentResponse, Type } from "@google/genai";
-import { pipeline, AutoTokenizer, env } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
 import { GameMasterMode, type WorldInfoEntry, type Character, type CharacterInput, type Settings } from '../types';
 
 // ===================================================================================
@@ -46,7 +46,6 @@ class LlmService {
     private history: Content[] = [];
 
     private localGenerator: any = null;
-    private localTokenizer: any = null;
 
     private constructor() {}
 
@@ -79,17 +78,19 @@ class LlmService {
         env.localModelPath = './Models';
         // Disable remote downloads to ensure the local folder is used
         env.allowRemoteModels = false;
+        // Ensure llama.cpp backend is used for GGUF models
+        env.backends = {
+            'text-generation': 'llama-cpp'
+        };
 
-        // The model ID must be the filename itself for a single GGUF file.
         const modelId = 'Phi-3-mini-4k-instruct-q4.gguf';
 
         progressCallback({ status: `Loading GGUF Model (${modelId}) using llama.cpp...` });
 
         // Tokenizer is bundled in GGUF – no need to load separately.
+        // We use the pipeline with the GGUF filename directly.
         this.localGenerator = await pipeline('text-generation', modelId, {
             progress_callback: progressCallback,
-            // Explicitly set the backend for GGUF files
-            backend: 'llama-cpp',
             // Optional generation settings – tune as needed
             quantized: true,
             max_new_tokens: 512,
