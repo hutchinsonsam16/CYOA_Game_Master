@@ -1312,7 +1312,12 @@ const App: React.FC = () => {
 
     const backgroundUrl = useMemo(() => {
         if (!state.settings.dynamicBackgrounds || !latestBackgroundPrompt) return '';
-        return `https://source.unsplash.com/1600x900/?${encodeURIComponent(latestBackgroundPrompt)}`;
+        try {
+            return `https://source.unsplash.com/1600x900/?${encodeURIComponent(latestBackgroundPrompt)}`;
+        } catch (e) {
+            console.error("Failed to encode background prompt:", e);
+            return '';
+        }
     }, [latestBackgroundPrompt, state.settings.dynamicBackgrounds]);
 
     return (
