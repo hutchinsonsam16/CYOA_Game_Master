@@ -73,21 +73,29 @@ class LlmService {
     }
 
     private async initializeLocalModel(progressCallback: (progress: any) => void) {
-        if (this.localGenerator && this.localTokenizer) return;
+        if (this.localGenerator) return;
 
         // Set the path to the local Models folder
         env.localModelPath = './Models';
         // Disable remote downloads to ensure the local folder is used
         env.allowRemoteModels = false;
 
+        // The model ID must be the filename itself for a single GGUF file.
         const modelId = 'Phi-3-mini-4k-instruct-q4.gguf';
-        progressCallback({ status: `Loading Tokenizer for (${modelId})...` });
-        this.localTokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: progressCallback });
 
-        progressCallback({ status: `Loading Model (${modelId})...` });
+        progressCallback({ status: `Loading GGUF Model (${modelId}) using llama.cpp...` });
+
+        // Tokenizer is bundled in GGUF – no need to load separately.
         this.localGenerator = await pipeline('text-generation', modelId, {
             progress_callback: progressCallback,
-        } as any);
+            // Explicitly set the backend for GGUF files
+            backend: 'llama-cpp',
+            // Optional generation settings – tune as needed
+            quantized: true,
+            max_new_tokens: 512,
+            temperature: 0.7,
+            top_k: 50,
+        });
     }
 
     public startChat(mode: AiServiceMode, systemInstruction: string, history: Content[]) {
@@ -137,12 +145,19 @@ class LlmService {
             { role: 'user', content: message }
         ];
 
-        const formattedPrompt = this.localTokenizer.apply_chat_template(chatHistory, { tokenize: false, add_generation_prompt: true });
+        // Manually format the prompt for Phi-3 models
+        const formattedPrompt = chatHistory.map(m => `<|${m.role}|>\n${m.content}`).join('\n') + `\n<|assistant|>\n`;
 
         progressCallback({ status: 'Generating response...', file: 'Running model...' });
-        const result = await this.localGenerator(formattedPrompt, { max_new_tokens: 512, do_sample: true, temperature: 0.7, top_k: 50 });
-        const assistantResponse = result[0].generated_text.split('<|assistant|>').pop()?.trim() ?? '';
 
+        const result = await this.localGenerator(formattedPrompt, {
+            max_new_tokens: 512,
+            do_sample: true,
+            temperature: 0.7,
+            top_k: 50
+        });
+
+        const assistantResponse = result[0].generated_text.split('<|assistant|>').pop()?.trim() ?? '';
         this.history.push({ role: 'model', parts: [{ text: assistantResponse }] });
         return assistantResponse;
     }
