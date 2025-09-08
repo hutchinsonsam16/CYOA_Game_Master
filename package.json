@@ -5,7 +5,7 @@
   "main": "electron.js",
   "scripts": {
     "start": "node_modules\\.bin\\electron .",
-    "build:css": "node_modules\\.bin\\postcss ./index.css -o ./dist/index.css --no-map",
+    "build:css": "postcss ./index.css -o ./dist/index.css --no-map",
     "build": "shx rm -rf dist && shx mkdir dist && npm run build:css && shx cp index.html sw.js manifest.json metadata.json dist/ && cross-env NODE_ENV=production esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic",
     "electron:build": "npm run build && electron-builder",
     "android:sync": "npm run build && npx cap sync android",
