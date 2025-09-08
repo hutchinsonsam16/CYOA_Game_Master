@@ -78,19 +78,16 @@ class LlmService {
         env.localModelPath = './Models';
         // Disable remote downloads to ensure the local folder is used
         env.allowRemoteModels = false;
-        // Ensure llama.cpp backend is used for GGUF models
-        env.backends = {
-            'text-generation': 'llama-cpp'
-        };
 
         const modelId = 'Phi-3-mini-4k-instruct-q4.gguf';
 
         progressCallback({ status: `Loading GGUF Model (${modelId}) using llama.cpp...` });
 
-        // Tokenizer is bundled in GGUF – no need to load separately.
-        // We use the pipeline with the GGUF filename directly.
+        // We use the pipeline with the GGUF filename directly and explicitly set the backend.
         this.localGenerator = await pipeline('text-generation', modelId, {
             progress_callback: progressCallback,
+            // Explicitly set the backend for GGUF files
+            backend: 'llama-cpp',
             // Optional generation settings – tune as needed
             quantized: true,
             max_new_tokens: 512,
