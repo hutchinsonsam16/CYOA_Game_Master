@@ -53,6 +53,7 @@ const SetupScreen: React.FC<{
     const [isFileLoading, setIsFileLoading] = useState(false);
     const [isWorldToolsModalOpen, setIsWorldToolsModalOpen] = useState(false);
     const isApiKeyAvailable = !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
+    const localModelOptions = Object.entries(llmService.localModels);
 
     const [settings, setSettings] = useState<Settings>({
         artStyle: artStyles['Cinematic Film'],
@@ -61,6 +62,7 @@ const SetupScreen: React.FC<{
         generateCharacterPortraits: true,
         dynamicBackgrounds: true,
         aiServiceMode: isApiKeyAvailable ? 'GEMINI_API' : 'LOCAL',
+        localLlmModel: localModelOptions[0][1],
     });
     const saveFileInputRef = useRef<HTMLInputElement>(null);
     const worldFileInputRef = useRef<HTMLInputElement>(null);
@@ -287,6 +289,16 @@ const SetupScreen: React.FC<{
                                 </select>
                             </div>
                         </div>
+                        {settings.aiServiceMode === 'LOCAL' && (
+                            <div className="space-y-2 pt-2 border-t border-border/50">
+                                <label className="block text-sm font-semibold text-text-main">Local Model</label>
+                                <select value={settings.localLlmModel} onChange={(e) => handleSettingChange('localLlmModel', e.target.value)} className="w-full bg-surface-3 border border-border rounded-md p-2 focus:ring-2 focus:ring-primary">
+                                    {localModelOptions.map(([name, id]) => (
+                                        <option key={id} value={id}>{name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                         <div className="pt-2 border-t border-border/50 space-y-2">
                             <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary" /></label>
                             <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary" /></label>
@@ -472,6 +484,7 @@ const SettingsModal: React.FC<{
 }> = ({ isOpen, onClose, settings, onSettingsChange }) => {
     if (!isOpen) return null;
     const isApiMode = settings.aiServiceMode === 'GEMINI_API' && !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
+    const localModelOptions = Object.entries(llmService.localModels);
 
     const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
         onSettingsChange({ [key]: value });
@@ -494,6 +507,24 @@ const SettingsModal: React.FC<{
                     </select>
                 </div>
                 <div className="space-y-3 pt-4 border-t border-border">
+                    <div>
+                        <label className="block text-lg font-semibold text-primary mb-2">AI Model</label>
+                        <select value={settings.aiServiceMode} onChange={(e) => handleSettingChange('aiServiceMode', e.target.value as AiServiceMode)} className="w-full bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary">
+                            <option value="LOCAL">Local Model (In-Browser)</option>
+                            <option value="GEMINI_API" disabled={!isApiKeyAvailable}>Gemini API (Cloud)</option>
+                        </select>
+                        {!isApiKeyAvailable && <p className="text-xs text-text-muted mt-1">Gemini API requires an API_KEY environment variable.</p>}
+                    </div>
+                    {settings.aiServiceMode === 'LOCAL' && (
+                        <div>
+                            <label className="block text-lg font-semibold text-primary mb-2">Local Model</label>
+                            <select value={settings.localLlmModel} onChange={(e) => handleSettingChange('localLlmModel', e.target.value)} className="w-full bg-surface-2 border border-border rounded-md p-3 focus:ring-2 focus:ring-primary">
+                                {localModelOptions.map(([name, id]) => (
+                                    <option key={id} value={id}>{name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
                     <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
                     <label className="flex items-center justify-between cursor-pointer"><span className="text-text-main">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
@@ -882,6 +913,7 @@ const GameUI: React.FC<{
 // ===================================================================================
 
 const hasApiKey = !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
+const localModels = Object.values(llmService.localModels);
 const initialState: AppState = {
     gamePhase: GamePhase.SETUP,
     storyLog: [],
@@ -895,6 +927,7 @@ const initialState: AppState = {
         generateCharacterPortraits: true,
         dynamicBackgrounds: true,
         aiServiceMode: hasApiKey ? 'GEMINI_API' : 'LOCAL',
+        localLlmModel: localModels[0] || 'distilgpt2',
     },
     character: { portraits: [], description: '', class: '', alignment: '', backstory: '', skills: {} },
     inventory: [],
