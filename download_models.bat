@@ -10,6 +10,14 @@ if not exist "%MODEL_DIR%" (
     mkdir "%MODEL_DIR%"
 )
 
+:: Ensure the @xenova/transformers library is installed locally for npx commands
+echo.
+echo Ensuring @xenova/transformers is installed...
+npm install @xenova/transformers
+
+echo.
+echo Starting downloads...
+
 :: Download all models using npx and the @xenova/transformers package
 echo.
 echo Downloading DistilGPT-2...
