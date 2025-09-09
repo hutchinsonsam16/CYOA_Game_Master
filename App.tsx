@@ -53,7 +53,7 @@ const SetupScreen: React.FC<{
     const [isFileLoading, setIsFileLoading] = useState(false);
     const [isWorldToolsModalOpen, setIsWorldToolsModalOpen] = useState(false);
     const isApiKeyAvailable = !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
-    const localModelOptions = Object.entries(llmService.localModels);
+    const localModelOptions = useMemo(() => Object.entries(llmService.localModels), []);
 
     const [settings, setSettings] = useState<Settings>({
         artStyle: artStyles['Cinematic Film'],
@@ -62,7 +62,7 @@ const SetupScreen: React.FC<{
         generateCharacterPortraits: true,
         dynamicBackgrounds: true,
         aiServiceMode: isApiKeyAvailable ? 'GEMINI_API' : 'LOCAL',
-        localLlmModel: localModelOptions[0][1],
+        localLlmModel: localModelOptions[0]?.[1] ?? null,
     });
     const saveFileInputRef = useRef<HTMLInputElement>(null);
     const worldFileInputRef = useRef<HTMLInputElement>(null);
@@ -484,7 +484,7 @@ const SettingsModal: React.FC<{
 }> = ({ isOpen, onClose, settings, onSettingsChange }) => {
     if (!isOpen) return null;
     const isApiMode = settings.aiServiceMode === 'GEMINI_API' && !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
-    const localModelOptions = Object.entries(llmService.localModels);
+    const localModelOptions = useMemo(() => Object.entries(llmService.localModels), []);
 
     const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
         onSettingsChange({ [key]: value });
@@ -513,7 +513,7 @@ const SettingsModal: React.FC<{
                             <option value="LOCAL">Local Model (In-Browser)</option>
                             <option value="GEMINI_API" disabled={!isApiKeyAvailable}>Gemini API (Cloud)</option>
                         </select>
-                        {!isApiKeyAvailable && <p className="text-xs text-text-muted mt-1">Gemini API requires an API_KEY environment variable.</p>}
+                        {!isApiKeyAvailable && <p className="text-xs text-text-muted mt-1">AI Model can only be changed when starting a new game.</p>}
                     </div>
                     {settings.aiServiceMode === 'LOCAL' && (
                         <div>
@@ -913,7 +913,6 @@ const GameUI: React.FC<{
 // ===================================================================================
 
 const hasApiKey = !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
-const localModels = Object.values(llmService.localModels);
 const initialState: AppState = {
     gamePhase: GamePhase.SETUP,
     storyLog: [],
@@ -927,7 +926,7 @@ const initialState: AppState = {
         generateCharacterPortraits: true,
         dynamicBackgrounds: true,
         aiServiceMode: hasApiKey ? 'GEMINI_API' : 'LOCAL',
-        localLlmModel: localModels[0] || 'distilgpt2',
+        localLlmModel: null,
     },
     character: { portraits: [], description: '', class: '', alignment: '', backstory: '', skills: {} },
     inventory: [],
