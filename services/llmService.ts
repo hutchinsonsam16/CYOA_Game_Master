@@ -51,6 +51,7 @@ class LlmService {
     public static localModels = {
         'DistilGPT-2': 'distilgpt2',
         'Llama-3.2-1B-Instruct': 'onnx-community/Llama-3.2-1B-Instruct',
+        'DeepSeek-R1-Distill-Qwen-1.5B': 'deepseek-ai/DeepSeek-Coder-V2-Lite-Base-GGUF'
     };
 
     private constructor() {}
@@ -79,6 +80,8 @@ class LlmService {
 
     private async initializeLocalModel(modelId: string, progressCallback: (progress: any) => void) {
         if (this.localGenerator && this.currentLocalModel === modelId) return;
+
+        env.localModelPath = window.electronAPI.localModelPath;
 
         progressCallback({ status: `Downloading model (${modelId})...` });
 
