@@ -53,7 +53,7 @@ const SetupScreen: React.FC<{
     const [isFileLoading, setIsFileLoading] = useState(false);
     const [isWorldToolsModalOpen, setIsWorldToolsModalOpen] = useState(false);
     const isApiKeyAvailable = !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
-    const localModelOptions = useMemo(() => Object.entries(llmService.localModels), []);
+    const localModelOptions = useMemo(() => Object.entries(llmService.localModels ?? {}), []);
 
     const [settings, setSettings] = useState<Settings>({
         artStyle: artStyles['Cinematic Film'],
@@ -95,7 +95,7 @@ const SetupScreen: React.FC<{
         setIsStructuringEntry(index);
         try {
             const entryToStructure = worldInfo[index];
-            const structuredData = await structureWorldDataWithAI(content);
+            const structuredData = await structureWorldDataWithAI(entryToStructure.content);
             if (structuredData && structuredData.length > 0) {
                 setWorldInfo(prev => {
                     const newInfo = [...prev];
@@ -484,7 +484,7 @@ const SettingsModal: React.FC<{
 }> = ({ isOpen, onClose, settings, onSettingsChange }) => {
     if (!isOpen) return null;
     const isApiMode = settings.aiServiceMode === 'GEMINI_API' && !!(typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
-    const localModelOptions = useMemo(() => Object.entries(llmService.localModels), []);
+    const localModelOptions = useMemo(() => Object.entries(llmService.localModels ?? {}), []);
 
     const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
         onSettingsChange({ [key]: value });
