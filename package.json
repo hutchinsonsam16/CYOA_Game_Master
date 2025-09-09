@@ -7,7 +7,7 @@
     "start": "node_modules\\.bin\\electron .",
     "build:css": "npx postcss ./index.css -o ./dist/index.css --no-map",
     "build": "shx rm -rf dist && shx mkdir dist && npm run build:css && shx cp index.html sw.js manifest.json metadata.json dist/ && cross-env NODE_ENV=production esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic",
-    "download:models": "download_models.bat",
+    "download:models": "node download-models.js",
     "electron:build": "npm run build && electron-builder",
     "android:sync": "npm run build && npx cap sync android",
     "android:open": "npx cap open android"
