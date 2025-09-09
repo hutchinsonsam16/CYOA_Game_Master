@@ -912,6 +912,117 @@ function appReducer(state: AppState, action: Action): AppState {
 //  MAIN APP COMPONENT
 // ===================================================================================
 
+const GameUI: React.FC<{
+    state: AppState;
+    previousGameState: SavedGameState | null;
+    onPlayerAction: (action: string) => void;
+    onRegenerateResponse: () => void;
+    onUpdateCharacterImage: (description: string) => void;
+    onUpdateSceneImage: (index: number, prompt: string) => void;
+    onUndo: () => void;
+    onOpenSettings: () => void;
+    onOpenLog: () => void;
+    onNewGame: () => void;
+    onOpenWorldKnowledge: () => void;
+    onSaveGame: () => void;
+    isSaving: boolean;
+}> = ({
+    state, previousGameState, onPlayerAction, onRegenerateResponse, onUpdateCharacterImage, onUpdateSceneImage,
+    onUndo, onOpenSettings, onOpenLog, onNewGame, onOpenWorldKnowledge, onSaveGame, isSaving
+}) => {
+    const [playerInput, setPlayerInput] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+        }
+    }, [state.storyLog]);
+
+    const lastAiEntryIndex = useMemo(() => {
+        const reversedLog = [...state.storyLog].reverse();
+        const index = reversedLog.findIndex(e => e.type === 'ai');
+        return index !== -1 ? state.storyLog.length - 1 - index : -1;
+    }, [state.storyLog]);
+
+    const lastAiEntry = lastAiEntryIndex !== -1 ? state.storyLog[lastAiEntryIndex] : null;
+
+    const lastPlayerEntryIndex = useMemo(() => {
+        const reversedLog = [...state.storyLog].reverse();
+        const index = reversedLog.findIndex(e => e.type === 'player');
+        return index !== -1 ? state.storyLog.length - 1 - index : -1;
+    }, [state.storyLog]);
+
+    const lastPlayerEntry = lastPlayerEntryIndex !== -1 ? state.storyLog[lastPlayerEntryIndex] : null;
+
+    const handleItemAction = useCallback((action: string) => {
+        onPlayerAction(action);
+        setPlayerInput('');
+    }, [onPlayerAction]);
+
+    return (
+        <div className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
+            <div className="w-full lg:w-2/3 flex-grow bg-surface-1 p-6 sm:p-8 rounded-xl shadow-2xl border border-border flex flex-col overflow-hidden">
+                <div ref={scrollRef} className="flex-grow overflow-y-auto custom-scrollbar p-2 -m-2 mb-4">
+                    {state.storyLog.map((entry, index) => {
+                        const isLastEntry = index === state.storyLog.length - 1;
+                        if (entry.type === 'player') {
+                            return (
+                                <div key={index} className="flex justify-end mb-4 animate-fade-in-up">
+                                    <div className="bg-primary/40 p-4 rounded-lg max-w-[80%]">
+                                        <p className="text-text-main italic font-serif leading-relaxed">{entry.content}</p>
+                                    </div>
+                                </div>
+                            );
+                        } else {
+                            const canRegenerate = isLastEntry && !state.isCharacterImageLoading && !entry.isStreaming && previousGameState?.chatHistory.length === state.storyLog.length -1;
+                            return (
+                                <StoryBlock
+                                    key={index}
+                                    entry={entry}
+                                    onRegenerateImage={() => onUpdateSceneImage(index, entry.imgPrompt!)}
+                                    onRegenerateResponse={onRegenerateResponse}
+                                    isLastEntry={isLastEntry}
+                                    canRegenerate={!!canRegenerate}
+                                    settings={state.settings}
+                                />
+                            );
+                        }
+                    })}
+                </div>
+                <div className="flex-shrink-0">
+                    <ChoiceAndInputPanel
+                        isAITurn={state.gamePhase === GamePhase.LOADING}
+                        choices={lastAiEntry?.choices || []}
+                        onActionSubmit={(action) => { onPlayerAction(action); setPlayerInput(''); }}
+                        playerInput={playerInput}
+                        setPlayerInput={setPlayerInput}
+                        inputRef={inputRef}
+                        canUndo={!!previousGameState && state.gamePhase !== GamePhase.LOADING}
+                        onUndo={onUndo}
+                        onOpenSettings={onOpenSettings}
+                        onOpenLog={onOpenLog}
+                        onNewGame={onNewGame}
+                        onSaveGame={onSaveGame}
+                        isSaving={isSaving}
+                    />
+                </div>
+            </div>
+            <StatusSidebar
+                character={state.character}
+                inventory={state.inventory}
+                npcs={state.npcs}
+                isImageLoading={state.isCharacterImageLoading}
+                onRegenerate={() => onUpdateCharacterImage(state.character.description)}
+                onOpenWorldKnowledge={onOpenWorldKnowledge}
+                settings={state.settings}
+                onItemAction={handleItemAction}
+            />
+        </div>
+    );
+};
+
 const App: React.FC = () => {
     const [state, dispatch] = useReducer(appReducer, initialState);
     const [previousGameState, setPreviousGameState] = useState<SavedGameState | null>(null);
