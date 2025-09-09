@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat, Content, GenerateContentResponse, Type } from "@google/genai";
+import { GoogleGenAI, Chat, Content, Type } from "@google/genai";
 import { pipeline, env } from '@xenova/transformers';
 import { GameMasterMode, type WorldInfoEntry, type Character, type CharacterInput, type Settings } from '../types';
 
@@ -46,6 +46,12 @@ class LlmService {
     private history: Content[] = [];
 
     private localGenerator: any = null;
+    private currentLocalModel: string | null = null;
+
+    public static localModels = {
+        'DeepSeek-R1-Distill-Qwen-1.5B': 'deepseek-ai/DeepSeek-Coder-V2-Lite-Base-GGUF',
+        'Phi-3-mini-4k-instruct_gguf': 'Xenova/phi-3-mini-4k-instruct_gguf',
+    };
 
     private constructor() {}
 
@@ -71,29 +77,18 @@ class LlmService {
         }
     }
 
-    private async initializeLocalModel(progressCallback: (progress: any) => void) {
-        if (this.localGenerator) return;
+    private async initializeLocalModel(modelId: string, progressCallback: (progress: any) => void) {
+        if (this.localGenerator && this.currentLocalModel === modelId) return;
 
-        // Set the path to the local Models folder
-        env.localModelPath = (window as any).electronAPI.localModelPath;
-        // Disable remote downloads to ensure the local folder is used
-        env.allowRemoteModels = false;
+        progressCallback({ status: `Downloading model (${modelId})...` });
 
-        const modelId = 'Phi-3-mini-4k-instruct-q4.gguf';
-
-        progressCallback({ status: `Loading GGUF Model (${modelId}) using llama.cpp...` });
-
-        // We use the pipeline with the GGUF filename directly and explicitly set the backend.
         this.localGenerator = await pipeline('text-generation', modelId, {
             progress_callback: progressCallback,
-            // Explicitly set the backend for GGUF files
+            quantization: 'q4',
             backend: 'llama-cpp',
-            // Optional generation settings – tune as needed
-            quantized: true,
-            max_new_tokens: 512,
-            temperature: 0.7,
-            top_k: 50,
-        });
+        } as any);
+
+        this.currentLocalModel = modelId;
     }
 
     public startChat(mode: AiServiceMode, systemInstruction: string, history: Content[]) {
@@ -128,10 +123,10 @@ class LlmService {
         return fullText;
     }
 
-    public async generateText(systemInstruction: string, message: string, progressCallback: (progress: any) => void): Promise<string> {
+    public async generateText(modelId: string, systemInstruction: string, message: string, progressCallback: (progress: any) => void): Promise<string> {
         if (this.mode !== 'LOCAL') throw new Error("Non-streaming generation is only for Local mode.");
 
-        await this.initializeLocalModel(progressCallback);
+        await this.initializeLocalModel(modelId, progressCallback);
         this.history.push({ role: 'user', parts: [{ text: message }] });
 
         const chatHistory = [
