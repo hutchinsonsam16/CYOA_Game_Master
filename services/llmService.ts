@@ -49,8 +49,8 @@ class LlmService {
     private currentLocalModel: string | null = null;
 
     public static localModels = {
-        'DeepSeek-R1-Distill-Qwen-1.5B': 'deepseek-ai/DeepSeek-Coder-V2-Lite-Base-GGUF',
-        'Phi-3-mini-4k-instruct_gguf': 'Xenova/phi-3-mini-4k-instruct_gguf',
+        'DistilGPT-2': 'distilgpt2',
+        'Llama-3.2-1B-Instruct': 'onnx-community/Llama-3.2-1B-Instruct',
     };
 
     private constructor() {}
@@ -84,8 +84,6 @@ class LlmService {
 
         this.localGenerator = await pipeline('text-generation', modelId, {
             progress_callback: progressCallback,
-            quantization: 'q4',
-            backend: 'llama-cpp',
         } as any);
 
         this.currentLocalModel = modelId;
@@ -129,28 +127,16 @@ class LlmService {
         await this.initializeLocalModel(modelId, progressCallback);
         this.history.push({ role: 'user', parts: [{ text: message }] });
 
-        const chatHistory = [
-            { role: 'system', content: systemInstruction },
-            ...this.history.map(c => ({
-                role: c.role === 'user' ? 'user' : 'assistant',
-                content: (c.parts[0] as any).text
-            })),
-            { role: 'user', content: message }
-        ];
-
-        // Manually format the prompt for Phi-3 models
-        const formattedPrompt = chatHistory.map(m => `<|${m.role}|>\n${m.content}`).join('\n') + `\n<|assistant|>\n`;
-
         progressCallback({ status: 'Generating response...', file: 'Running model...' });
 
-        const result = await this.localGenerator(formattedPrompt, {
+        const result = await this.localGenerator(message, {
             max_new_tokens: 512,
             do_sample: true,
             temperature: 0.7,
             top_k: 50
         });
 
-        const assistantResponse = result[0].generated_text.split('<|assistant|>').pop()?.trim() ?? '';
+        const assistantResponse = result[0].generated_text.trim() ?? '';
         this.history.push({ role: 'model', parts: [{ text: assistantResponse }] });
         return assistantResponse;
     }
@@ -237,7 +223,7 @@ export const enhanceWorldEntry = async (text: string): Promise<string> => {
 
 export const structureWorldDataWithAI = async (text: string): Promise<WorldInfoEntry[]> => {
     if (!text.trim()) return [];
-    const prompt = `You are a master loremaster. Analyze the following unstructured lore document and organize it into logical categories (e.g., "Major Factions", "Key Locations", "Historical Timeline", "Important Characters", "Magic System"). For each category, create a key and a content block with the relevant information. Your final output MUST be a JSON array of objects, where each object has a "key" and a "content" field.\n\n--- LORE DOCUMENT ---\n${text}\n--- END LORE DOCUMENT ---`;
+    const prompt = `You are a master loremaster. Analyze the following unstructured lore document and organize it into logical categories (e.g., "Major Factions", "Key Locations", "Historical Timeline", "Important Characters", "Magic System"). For each category, create a key and a content block with the relevant information. Your final output MUST be a JSON array of objects, where each object has a "key" and a "content" field. Your final output MUST be a JSON array of objects, where each object has a "key" and a "content" field.\n\n--- LORE DOCUMENT ---\n${text}\n--- END LORE DOCUMENT ---`;
     const response = await llmService.apiCall(ai => ai.models.gemini25Flash().generateContent({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: {
