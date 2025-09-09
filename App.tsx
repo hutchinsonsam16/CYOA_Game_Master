@@ -95,7 +95,7 @@ const SetupScreen: React.FC<{
         setIsStructuringEntry(index);
         try {
             const entryToStructure = worldInfo[index];
-            const structuredData = await structureWorldDataWithAI(entryToStructure.content);
+            const structuredData = await structureWorldDataWithAI(content);
             if (structuredData && structuredData.length > 0) {
                 setWorldInfo(prev => {
                     const newInfo = [...prev];
@@ -814,96 +814,6 @@ const ChoiceAndInputPanel: React.FC<{
                 </button>
             </div>
         </>
-    );
-};
-
-const GameUI: React.FC<{
-    state: AppState;
-    previousGameState: SavedGameState | null;
-    onPlayerAction: (action: string) => void;
-    onRegenerateResponse: () => void;
-    onUpdateCharacterImage: (description: string) => void;
-    onUpdateSceneImage: (index: number, prompt: string) => void;
-    onUndo: () => void;
-    onOpenSettings: () => void;
-    onOpenLog: () => void;
-    onNewGame: () => void;
-    onOpenWorldKnowledge: () => void;
-    onSaveGame: () => void;
-    isSaving: boolean;
-}> = ({ state, previousGameState, onPlayerAction, onRegenerateResponse, onUpdateCharacterImage, onUpdateSceneImage, onUndo, onOpenSettings, onOpenLog, onNewGame, onOpenWorldKnowledge, onSaveGame, isSaving }) => {
-    const logEndRef = useRef<HTMLDivElement>(null);
-    const [playerInput, setPlayerInput] = useState('');
-    const inputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [state.storyLog]);
-
-    const choices = state.storyLog[state.storyLog.length - 1]?.choices || [];
-    const isAITurn = state.gamePhase === GamePhase.LOADING;
-
-    const handleActionSubmit = (action: string) => {
-        if (action.trim()) {
-            onPlayerAction(action);
-            setPlayerInput('');
-        }
-    };
-
-    const handleItemAction = (action: string) => {
-        setPlayerInput(action);
-        inputRef.current?.focus();
-    };
-
-    return (
-        <main className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 h-[85vh]">
-            <StatusSidebar
-                character={state.character}
-                inventory={state.inventory}
-                npcs={state.npcs}
-                isImageLoading={state.isCharacterImageLoading}
-                onRegenerate={() => onUpdateCharacterImage(state.character.description)}
-                onOpenWorldKnowledge={onOpenWorldKnowledge}
-                settings={state.settings}
-                onItemAction={handleItemAction}
-            />
-            <div className="flex-grow h-full flex flex-col bg-surface-1 p-4 sm:p-6 rounded-xl shadow-2xl border border-border">
-                <div className="flex-grow overflow-y-auto mb-4 pr-4 -mr-4 custom-scrollbar">
-                    {state.storyLog.map((entry, index) =>
-                        entry.type === 'ai' ? (
-                            <StoryBlock
-                                key={index} entry={entry} settings={state.settings}
-                                onRegenerateResponse={onRegenerateResponse}
-                                isLastEntry={index === state.storyLog.map(e => e.type).lastIndexOf('ai')}
-                                canRegenerate={!!previousGameState && state.gamePhase !== GamePhase.LOADING}
-                                onRegenerateImage={() => entry.imgPrompt && onUpdateSceneImage(index, entry.imgPrompt)}
-                            />
-                        ) : (
-                            <div key={index} className="mb-8 animate-fade-in flex justify-end">
-                                <div className="max-w-[80%] bg-primary/40 p-4 rounded-lg"><p className="text-text-main italic">{entry.content}</p></div>
-                            </div>
-                        )
-                    )}
-                    {state.error && <div className="text-red-400 p-4 bg-red-800/50 rounded-md">{state.error}</div>}
-                    <div ref={logEndRef} />
-                </div>
-                <div className="flex-shrink-0 mt-auto pt-4 border-t border-border">
-                    <ChoiceAndInputPanel
-                        isAITurn={isAITurn}
-                        choices={choices}
-                        onActionSubmit={handleActionSubmit}
-                        playerInput={playerInput}
-                        setPlayerInput={setPlayerInput}
-                        inputRef={inputRef}
-                        canUndo={!!previousGameState}
-                        onUndo={onUndo}
-                        onOpenSettings={onOpenSettings}
-                        onOpenLog={onOpenLog}
-                        onNewGame={onNewGame}
-                        onSaveGame={onSaveGame}
-                        isSaving={isSaving}
-                    />
-                </div>
-            </div>
-        </main>
     );
 };
 
