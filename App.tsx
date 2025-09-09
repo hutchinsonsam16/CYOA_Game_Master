@@ -288,8 +288,8 @@ const SetupScreen: React.FC<{
                             </div>
                         </div>
                         <div className="pt-2 border-t border-border/50 space-y-2">
-                            <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-text-muted' : 'text-text-main'}`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
-                            <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={`${!isApiMode ? 'text-text-muted' : 'text-text-main'}`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} disabled={!isApiMode} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
+                            <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary" /></label>
+                            <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary" /></label>
                             <label className="flex items-center justify-between cursor-pointer"><span className="text-text-main">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-surface-3 bg-surface-2 text-primary focus:ring-primary" /></label>
                         </div>
                     </div>
@@ -348,13 +348,12 @@ const NpcDisplay: React.FC<{ npc: NPC }> = ({ npc }) => {
                     {npc.isHostile && <span title="Hostile">⚔️</span>}
                     <span>{npc.name}</span>
                 </p>
-                {npc.isHostile && <p className="text-xs font-mono text-text-muted">{npc.hp} / {npc.maxHp}</p>}
+                {npc.isHostile && (
+                    <div className="w-full bg-surface-3 rounded-full h-1.5 mt-1.5">
+                        <div className={healthBarColor} style={{ width: `${hpPercentage}%`, height: '100%', borderRadius: 'inherit' }}></div>
+                    </div>
+                )}
             </div>
-            {npc.isHostile && (
-                <div className="w-full bg-surface-3 rounded-full h-1.5 mt-1.5">
-                    <div className={healthBarColor} style={{ width: `${hpPercentage}%`, height: '100%', borderRadius: 'inherit' }}></div>
-                </div>
-            )}
             <div className="absolute z-10 bottom-full mb-2 w-64 left-0 bg-surface-1 p-3 rounded-lg border border-border shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                 <p className="text-text-main text-xs">{npc.description}</p>
             </div>
@@ -400,8 +399,8 @@ const StatusSidebar: React.FC<{
                 }
             </div>
             <div className="grid grid-cols-2 gap-2 mt-2">
-                <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits || !isApiMode} className="w-full bg-primary text-white text-sm font-bold py-2 rounded-lg hover:bg-primary-hover disabled:bg-surface-3 disabled:cursor-not-allowed transition">
-                    {settings.generateCharacterPortraits && isApiMode ? '↻ Portrait' : 'Portraits Off'}
+                <button onClick={onRegenerate} disabled={isImageLoading || !character.description || !settings.generateCharacterPortraits} className="w-full bg-primary text-white text-sm font-bold py-2 rounded-lg hover:bg-primary-hover disabled:bg-surface-3 disabled:cursor-not-allowed transition">
+                    {settings.generateCharacterPortraits ? '↻ Portrait' : 'Portraits Off'}
                 </button>
                 <button onClick={onOpenWorldKnowledge} className="w-full bg-accent text-white text-sm font-bold py-2 rounded-lg hover:bg-green-700 transition">Search World Lore</button>
             </div>
@@ -494,8 +493,8 @@ const SettingsModal: React.FC<{
                     </select>
                 </div>
                 <div className="space-y-3 pt-4 border-t border-border">
-                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-text-muted' : 'text-text-main'}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} disabled={!isApiMode} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
-                    <label className={`flex items-center justify-between ${!isApiMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span className={!isApiMode ? 'text-text-muted' : 'text-text-main'}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} disabled={!isApiMode} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary disabled:cursor-not-allowed" /></label>
+                    <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Scene Images</span><input type="checkbox" checked={settings.generateSceneImages} onChange={e => handleSettingChange('generateSceneImages', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
+                    <label className={`flex items-center justify-between cursor-pointer`}><span className={`text-text-main`}>Generate Character Portraits</span><input type="checkbox" checked={settings.generateCharacterPortraits} onChange={e => handleSettingChange('generateCharacterPortraits', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
                     <label className="flex items-center justify-between cursor-pointer"><span className="text-text-main">Enable Dynamic Backgrounds</span><input type="checkbox" checked={settings.dynamicBackgrounds} onChange={e => handleSettingChange('dynamicBackgrounds', e.target.checked)} className="h-5 w-5 rounded border-border bg-surface-2 text-primary focus:ring-primary" /></label>
                 </div>
                 <p className="text-xs text-text-muted text-center">AI Model can only be changed when starting a new game.</p>
@@ -1334,7 +1333,7 @@ const App: React.FC = () => {
             {renderContent()}
             <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={state.settings} onSettingsChange={(newSettings) => dispatch({ type: 'UPDATE_SETTINGS', payload: newSettings })} />
             <WorldKnowledgeModal isOpen={isWorldModalOpen} onClose={() => setIsWorldModalOpen(false)} worldInfo={state.worldInfo} />
-            <GameLogModal isOpen={isLogModalOpen} onClose={() => setIsLogModalModalOpen(false)} storyLog={state.storyLog} />
+            <GameLogModal isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)} storyLog={state.storyLog} />
         </div>
     );
 };
