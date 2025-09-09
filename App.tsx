@@ -62,7 +62,7 @@ const SetupScreen: React.FC<{
         generateCharacterPortraits: true,
         dynamicBackgrounds: true,
         aiServiceMode: isApiKeyAvailable ? 'GEMINI_API' : 'LOCAL',
-        localLlmModel: localModelOptions[0]?.[1] ?? null,
+        localLlmModel: localModelOptions[0]?.[1] ?? '',
     });
     const saveFileInputRef = useRef<HTMLInputElement>(null);
     const worldFileInputRef = useRef<HTMLInputElement>(null);
@@ -836,7 +836,7 @@ const initialState: AppState = {
         generateCharacterPortraits: true,
         dynamicBackgrounds: true,
         aiServiceMode: hasApiKey ? 'GEMINI_API' : 'LOCAL',
-        localLlmModel: null,
+        localLlmModel: localModelOptions[0]?.[1] ?? '',
     },
     character: { portraits: [], description: '', class: '', alignment: '', backstory: '', skills: {} },
     inventory: [],
