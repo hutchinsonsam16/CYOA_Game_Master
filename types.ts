@@ -86,7 +86,6 @@ export interface Settings {
     gmMode: GameMasterMode;
     artStyle: string;
     aiServiceMode: AiServiceMode;
-    localLlmModel: string;
 }
 
 
