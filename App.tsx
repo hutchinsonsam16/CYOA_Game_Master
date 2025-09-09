@@ -321,7 +321,7 @@ const StoryBlock: React.FC<{
                             <div className="p-4 text-center"><h3 className="font-semibold text-text-main">{isApiMode ? 'Image Generation Failed' : 'Scene Image Generation Disabled'}</h3><p className="text-text-muted text-xs mt-1">{isApiMode ? 'The prompt may have been blocked by safety filters.' : 'Enable scene image generation in settings (requires API Mode).'}</p></div>}
                     </div>
                     {entry.isImageLoading && <div className="absolute inset-0 bg-background/70 flex items-center justify-center rounded-lg"><svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>}
-                    {!entry.isImageLoading && entry.imgPrompt && settings.generateSceneImages && isApiMode && <button onClick={onRegenerateImage} className="absolute bottom-3 right-3 bg-primary/80 text-white text-xs font-bold py-1 px-3 rounded-full hover:bg-primary-hover backdrop-blur-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity">↻ Regenerate</button>}
+                    {!entry.isImageLoading && entry.imgPrompt && settings.generateSceneImages && <button onClick={onRegenerateImage} className="absolute bottom-3 right-3 bg-primary/80 text-white text-xs font-bold py-1 px-3 rounded-full hover:bg-primary-hover backdrop-blur-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity">↻ Regenerate</button>}
                 </div>
             }
             <div className="bg-surface-2/50 p-4 sm:p-5 rounded-lg border border-border/50 shadow-md">
@@ -348,12 +348,13 @@ const NpcDisplay: React.FC<{ npc: NPC }> = ({ npc }) => {
                     {npc.isHostile && <span title="Hostile">⚔️</span>}
                     <span>{npc.name}</span>
                 </p>
-                {npc.isHostile && (
-                    <div className="w-full bg-surface-3 rounded-full h-1.5 mt-1.5">
-                        <div className={healthBarColor} style={{ width: `${hpPercentage}%`, height: '100%', borderRadius: 'inherit' }}></div>
-                    </div>
-                )}
+                {npc.isHostile && <p className="text-xs font-mono text-text-muted">{npc.hp} / {npc.maxHp}</p>}
             </div>
+            {npc.isHostile && (
+                <div className="w-full bg-surface-3 rounded-full h-1.5 mt-1.5">
+                    <div className={healthBarColor} style={{ width: `${hpPercentage}%`, height: '100%', borderRadius: 'inherit' }}></div>
+                </div>
+            )}
             <div className="absolute z-10 bottom-full mb-2 w-64 left-0 bg-surface-1 p-3 rounded-lg border border-border shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                 <p className="text-text-main text-xs">{npc.description}</p>
             </div>
@@ -865,7 +866,7 @@ const GameUI: React.FC<{
                         onUndo={onUndo}
                         onOpenSettings={onOpenSettings}
                         onOpenLog={onOpenLog}
-                        onNewGame={handleNewGame}
+                        onNewGame={onNewGame}
                         onSaveGame={onSaveGame}
                         isSaving={isSaving}
                     />
