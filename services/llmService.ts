@@ -82,7 +82,7 @@ class LlmService {
     private async initializeLocalModel(modelId: string, progressCallback: (progress: any) => void) {
         if (this.localGenerator && this.currentLocalModel === modelId) return;
 
-        env.localModelPath = window.electronAPI.localModelPath;
+        env.localModelPath = window.electronAPI.modelsPath + '/text';
 
         progressCallback({ status: `Downloading model (${modelId})...` });
 
