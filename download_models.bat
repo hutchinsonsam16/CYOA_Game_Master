@@ -1,5 +1,4 @@
 @echo off
-setlocal
 
 echo Starting model download script...
 
