@@ -51,7 +51,8 @@ class LlmService {
     public static localModels = {
         'DistilGPT-2': 'distilgpt2',
         'Llama-3.2-1B-Instruct': 'onnx-community/Llama-3.2-1B-Instruct',
-        'DeepSeek-R1-Distill-Qwen-1.5B': 'deepseek-ai/DeepSeek-Coder-V2-Lite-Base-GGUF'
+        'DeepSeek-R1-Distill-Qwen-1.5B': 'deepseek-ai/DeepSeek-Coder-V2-Lite-Base-GGUF',
+        'Xenova/gpt2': 'Xenova/gpt2',
     };
 
     private constructor() {}
