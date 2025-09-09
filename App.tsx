@@ -13,7 +13,7 @@ import {
     generateCharacterDetails, generateCharacterFlavor, retrieveRelevantSnippets, formatWorldInfoToString, summarizeWorldData
 } from './services/llmService';
 import {
-    imageService, artStyles, generateImage
+    imageService, artStyles
 } from './services/imageService';
 import { saveGameState, loadGameState, clearGameState } from './services/storageService';
 
@@ -866,7 +866,7 @@ const GameUI: React.FC<{
                         onUndo={onUndo}
                         onOpenSettings={onOpenSettings}
                         onOpenLog={onOpenLog}
-                        onNewGame={onNewGame}
+                        onNewGame={handleNewGame}
                         onSaveGame={onSaveGame}
                         isSaving={isSaving}
                     />
@@ -1011,14 +1011,16 @@ const App: React.FC = () => {
     }, []);
 
     const handleUpdateCharacterImage = useCallback(async (description: string) => {
-        if (!isApiMode || !state.settings.generateCharacterPortraits) return;
+        if (!state.settings.generateCharacterPortraits) return;
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: true });
         const fullPrompt = `Cinematic character portrait of ${description}. Focus on detailed facial features, expressive lighting, high-quality rendering.`;
-        const url = await imageService.generateImage(fullPrompt, state.settings.artStyle, '1:1');
+        const url = await imageService.generateImage(fullPrompt, state.settings.artStyle, '1:1', state.settings.aiServiceMode, (progress) => {
+            dispatch({ type: 'SET_LOADING_MESSAGE', payload: `Image generation progress: ${progress.status}` });
+        });
         const newPortrait: CharacterPortrait = { prompt: description, url };
         dispatch({ type: 'UPDATE_CHARACTER', payload: { description, portraits: [...state.character.portraits, newPortrait] } });
         dispatch({ type: 'UPDATE_CHARACTER_IMAGE_STATUS', payload: false });
-    }, [isApiMode, state.settings.artStyle, state.character.portraits, state.settings.generateCharacterPortraits]);
+    }, [state.settings.artStyle, state.character.portraits, state.settings.generateCharacterPortraits, state.settings.aiServiceMode]);
 
     const processFinalResponse = useCallback(async (responseText: string) => {
         const tagRegex = /\[(img-prompt|char-img-prompt|update-backstory|background-prompt)\](.*?)\[\/\1\]/gs;
@@ -1071,12 +1073,14 @@ const App: React.FC = () => {
         content = content.replace(itemRegex, '').replace(skillRegex, '').replace(npcRegex, '').trim();
         result.content = content;
 
-        if (result.imgPrompt && isApiMode && state.settings.generateSceneImages) {
-            result.imageUrl = await imageService.generateImage(result.imgPrompt, state.settings.artStyle, '16:9');
+        if (result.imgPrompt && state.settings.generateSceneImages) {
+            result.imageUrl = await imageService.generateImage(result.imgPrompt, state.settings.artStyle, '16:9', state.settings.aiServiceMode, (progress) => {
+                dispatch({ type: 'SET_LOADING_MESSAGE', payload: `Image generation progress: ${progress.status}` });
+            });
         }
 
         return result;
-    }, [isApiMode, state.settings.generateSceneImages, state.settings.artStyle]);
+    }, [state.settings.generateSceneImages, state.settings.artStyle, state.settings.aiServiceMode]);
 
     const handlePlayerAction = useCallback(async (action: string) => {
         if (!action.trim() || state.gamePhase === GamePhase.LOADING) return;
@@ -1109,7 +1113,7 @@ const App: React.FC = () => {
                     if(progress.progress) msg += ` (${Math.round(progress.progress)}%)`;
                     dispatch({ type: 'SET_LOADING_MESSAGE', payload: msg });
                 }
-                fullResponseText = await llmService.generateText(systemInstruction, message, progressCallback);
+                fullResponseText = await llmService.generateText(state.settings.localLlmModel, systemInstruction, message, progressCallback);
             }
 
             const processed = await processFinalResponse(fullResponseText);
@@ -1129,7 +1133,7 @@ const App: React.FC = () => {
                 newInventory = [...state.inventory.filter(item => !removedSet.has(item.name)), ...processed.addedItems];
             }
 
-            const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || fullResponseText, imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, backgroundPrompt: processed.backgroundPrompt, isImageLoading: !!(processed.imgPrompt && isApiMode && state.settings.generateSceneImages && !processed.imageUrl) };
+            const finalAiEntry: StoryEntry = { type: 'ai', content: processed.content || fullResponseText, imageUrl: processed.imageUrl, imgPrompt: processed.imgPrompt, choices: processed.choices, backgroundPrompt: processed.backgroundPrompt, isImageLoading: !!(processed.imgPrompt && state.settings.generateSceneImages && !processed.imageUrl) };
             dispatch({ type: 'FINISH_TURN', payload: {
                     entry: finalAiEntry,
                     character: characterUpdates,
@@ -1142,7 +1146,7 @@ const App: React.FC = () => {
             console.error(e);
             dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from the Game Master. Please try again.' });
         }
-    }, [state, processFinalResponse, handleUpdateCharacterImage, isApiMode]);
+    }, [state, processFinalResponse, handleUpdateCharacterImage]);
 
     const handleStartGame = useCallback(async (worldInfo: WorldInfoEntry[], worldSummary: string | null, characterInput: CharacterInput, initialPrompt: string, settings: Settings) => {
         dispatch({ type: 'SET_PHASE', payload: GamePhase.LOADING });
@@ -1261,11 +1265,12 @@ const App: React.FC = () => {
     }, [state.storyLog]);
 
     const handleUpdateSceneImage = useCallback(async (index: number, prompt: string) => {
-        if (!isApiMode) return;
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, isLoading: true }});
-        const newImageUrl = await imageService.generateImage(prompt, state.settings.artStyle, '16:9');
+        const newImageUrl = await imageService.generateImage(prompt, state.settings.artStyle, '16:9', state.settings.aiServiceMode, (progress) => {
+            dispatch({ type: 'SET_LOADING_MESSAGE', payload: `Image generation progress: ${progress.status}` });
+        });
         dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { index, imageUrl: newImageUrl, isLoading: false }});
-    }, [isApiMode, state.settings.artStyle]);
+    }, [state.settings.artStyle, state.settings.aiServiceMode]);
 
     const handleNewGame = useCallback(() => {
         if (window.confirm('Are you sure you want to start a new game? All current progress will be lost.')) {
