@@ -2,21 +2,43 @@ import { pipeline, env } from '@xenova/transformers';
 import fs from 'fs';
 import path from 'path';
 
+// Set the root for model downloads
+env.localDir = './models';
+env.allowRemoteModels = true;
+
 const textModels = [
-  { id: 'distilgpt2', dir: './models/text/distilgpt2' },
-  { id: 'onnx-community/Llama-3.2-1B-Instruct', dir: './models/text/Llama-3.2-1B-Instruct' },
-  { id: 'deepseek-ai/DeepSeek-Coder-V2-Lite-Base-GGUF', dir: './models/text/DeepSeek-R1-Distill-Qwen-1.5B' },
-  { id: 'Xenova/gpt2', dir: './models/text/Xenova-gpt2' }
+  { id: 'Xenova/distilgpt2', dir: './models/text/distilgpt2' },
+  { id: 'Xenova/LaMini-Flan-T5-783M', dir: './models/text/LaMini-Flan-T5-783M' },
+  { id: 'Xenova/pythia-1.4b-deduped', dir: './models/text/pythia-1.4b-deduped' },
+  { id: 'Xenova/gpt2', dir: './models/text/gpt2' }
 ];
 
-const imageModel = { id: 'Xenova/Janus-Pro-1B', dir: './models/image/Janus-Pro-1B' };
+const imageModel = { id: 'Xenova/stable-diffusion-2-1-base', dir: './models/image/stable-diffusion-2-1-base' };
 
 async function downloadModel(model_id, local_dir) {
   console.log(`Downloading ${model_id} to ${local_dir}`);
+  // Ensure the local directory exists
   fs.mkdirSync(local_dir, { recursive: true });
+  // Set the cache directory for this download
   env.cacheDir = path.resolve(local_dir);
-  await pipeline('text-generation', model_id);
+  await pipeline('text-generation', model_id, {
+    progress_callback: (progress) => {
+      console.log(`Downloading ${model_id}: ${progress.file} (${Math.round(progress.progress)}%)`);
+    }
+  });
 }
+
+async function downloadImageModel(model_id, local_dir) {
+    console.log(`Downloading ${model_id} to ${local_dir}`);
+    fs.mkdirSync(local_dir, { recursive: true });
+    env.cacheDir = path.resolve(local_dir);
+    await pipeline('text-to-image', model_id, {
+        progress_callback: (progress) => {
+            console.log(`Downloading ${model_id}: ${progress.file} (${Math.round(progress.progress)}%)`);
+        }
+    });
+}
+
 
 (async () => {
   for (const model of textModels) {
@@ -28,11 +50,10 @@ async function downloadModel(model_id, local_dir) {
   }
 
   try {
-    const imageDir = path.resolve(imageModel.dir);
-    fs.mkdirSync(imageDir, { recursive: true });
-    env.cacheDir = imageDir;
-    await pipeline('text-to-image', imageModel.id);
+      await downloadImageModel(imageModel.id, imageModel.dir);
   } catch (err) {
     console.error(`Failed to download ${imageModel.id}:`, err);
   }
+
+  console.log('All models downloaded successfully!');
 })();
