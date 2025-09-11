@@ -1,3 +1,25 @@
+/* Add these @font-face rules to the top of the file */
+/* Ensure the font file names match what you downloaded */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-VariableFont_slnt,wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Lora';
+  src: url('/fonts/Lora-VariableFont_ital,wght.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Lora';
+  src: url('/fonts/Lora-Italic-VariableFont_wght.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: italic;
+}
+
+/* --- Existing CSS --- */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
