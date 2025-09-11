@@ -1,7 +1,7 @@
 import { pipeline, env } from '@xenova/transformers';
 import { GameMasterMode, type WorldInfoEntry, type Character, type Settings } from '../types';
 
-// Ensure transformers.js uses the models you've downloaded
+// Ensure transformers.js uses the models you've downloaded from the './models' directory
 env.allowRemoteModels = false;
 env.localDir = './models';
 
