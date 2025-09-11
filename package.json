@@ -1,40 +1,34 @@
 {
   "name": "cyoa-game-master",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "An interactive, text-based Choose-Your-Own-Adventure (CYOA) game powered by AI.",
   "main": "electron.js",
   "scripts": {
-    "start": "node_modules\\.bin\\electron .",
-    "build:css": "npx postcss ./index.css -o ./dist/index.css --no-map",
-    "build": "shx rm -rf dist && shx mkdir dist && npm run build:css && shx cp index.html sw.js manifest.json metadata.json dist/ && cross-env NODE_ENV=production esbuild index.tsx --bundle --outfile=dist/index.js --jsx=automatic",
-    "download:models": "node download-models.js",
-    "electron:build": "npm run build && electron-builder",
-    "android:sync": "npm run build && npx cap sync android",
-    "android:open": "npx cap open android"
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "postinstall": "node download-models.js",
+    "start": "electron .",
+    "electron:build": "npm run build && electron-builder"
   },
-  "author": "",
+  "author": "Your Name",
   "license": "ISC",
   "devDependencies": {
-    "@capacitor/android": "^6.0.0",
-    "@capacitor/cli": "^6.0.0",
-    "@capacitor/core": "^6.0.0",
+    "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
-    "cross-env": "^7.0.3",
-    "electron": "^38.0.0",
-    "electron-builder": "^24.13.3",
-    "esbuild": "^0.25.9",
+    "electron": "^28.2.3",
+    "electron-builder": "^24.9.1",
     "postcss": "^8.4.38",
-    "shx": "^0.3.4",
-    "tailwindcss": "^3.4.4"
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.1.4"
   },
   "dependencies": {
-    "@google/genai": "^1.1.0",
+    "@google/genai": "^0.1.0",
     "@xenova/transformers": "^2.17.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0",
-    "vite": "^7.1.4"
+    "remark-gfm": "^4.0.0"
   },
   "build": {
     "appId": "com.sanyamsharma.cyoagamemaster",
@@ -43,7 +37,7 @@
       "dist/**/*",
       "electron.js",
       "preload.js",
-      "Models/**/*"
+      "models/**/*"
     ],
     "directories": {
       "buildResources": "assets",
