@@ -16,7 +16,7 @@ This is an interactive, text-based Choose-Your-Own-Adventure (CYOA) game powered
 ### 1. Clone the Repository
 Open your terminal or command prompt and run the following command:
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/hutchinsonsam16/CYOA_Game_Master/
 cd cyoa-game-master
 ````
 
@@ -63,7 +63,3 @@ This will open the application in a new browser window.
   - **Gemini API Mode**: Uses the Google Gemini API for state-of-the-art text and image generation, providing a much richer and more coherent storytelling experience.
 
 <!-- end list -->
-
-```
-
-By replacing these files and deleting the redundant `geminiService.ts`, your project will be in a clean, functional state. The startup process will be correct, the right models will be downloaded, and the application logic will work as intended.
