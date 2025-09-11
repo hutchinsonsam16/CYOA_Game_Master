@@ -1,12 +1,13 @@
-const CACHE_NAME = 'cyoa-game-master-v4';
+const CACHE_NAME = 'cyoa-game-master-v5-local';
+// Updated list of files to cache
 const urlsToCache = [
-  './',
-  './index.html',
-  './index.js',
-  './index.css',
-  './manifest.json',
-  './metadata.json',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,700;1,400&display=swap'
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  // Vite will handle caching of JS and CSS assets in production builds,
+  // so we don't need to explicitly list them here for the dev server.
 ];
 
 self.addEventListener('install', (event) => {
