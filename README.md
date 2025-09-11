@@ -2,19 +2,19 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# CYOA Game Master
 
-This contains everything you need to run your app locally.
+This is an interactive, text-based Choose-Your-Own-Adventure (CYOA) game powered by a personal AI storyteller. It can run using local, in-browser models or a powerful cloud-based AI via the Gemini API.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1eFzXdoA-vITXFB4yFsBFT6X9Pre1gW44
+##  Prerequisites
 
-## Run Locally
+- **Node.js**: [Download and install Node.js](https://nodejs.org/) (which includes npm).
+- **Git**: [Download and install Git](https://git-scm.com/).
 
-**Prerequisites:**  Node.js
+## 🚀 Running Locally
 
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 1. Clone the Repository
+Open your terminal or command prompt and run the following command:
+```bash
+git clone <your-repository-url>
+cd cyoa-game-master
