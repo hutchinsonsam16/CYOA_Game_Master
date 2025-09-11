@@ -13,8 +13,6 @@ export enum GameMasterMode {
   ACTION = 'Action Focus',
 }
 
-export type AiServiceMode = 'LOCAL' | 'GEMINI_API';
-
 export interface WorldInfoEntry {
   key: string;
   content: string;
@@ -34,10 +32,10 @@ export interface StoryEntry {
 
 export interface CharacterInput {
   description: string;
-  characterClass?: string;
-  alignment?: string;
-  backstory?: string;
-  skills?: string;
+  characterClass: string;
+  alignment: string;
+  backstory: string;
+  skills: string;
 }
 
 export interface Character {
@@ -72,7 +70,7 @@ export interface SavedGameState {
   storyLog: StoryEntry[];
   worldInfo: WorldInfoEntry[];
   worldSummary: string;
-  chatHistory: Content[];
+  chatHistory: { role: string, parts: { text: string }[] }[];
   character: Character;
   inventory: InventoryItem[];
   npcs: NPC[];
@@ -85,9 +83,8 @@ export interface Settings {
     dynamicBackgrounds: boolean;
     gmMode: GameMasterMode;
     artStyle: string;
-    aiServiceMode: AiServiceMode;
+    localLlmModel: string;
 }
-
 
 // Reducer Types
 
