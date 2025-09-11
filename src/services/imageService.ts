@@ -1,4 +1,8 @@
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
+
+// Ensure transformers.js uses the models you've downloaded from the './models' directory
+env.allowRemoteModels = false;
+env.localDir = './models';
 
 export const artStyles: { [key: string]: string } = {
     'Photorealistic': 'Ultra-realistic, 8K resolution, sharp focus, detailed skin texture, professional studio lighting',
@@ -34,12 +38,10 @@ class ImageService {
         }
         
         progressCallback({ status: 'Generating local image...' });
-        // Local models don't typically support aspect ratio, so we remove it.
-        // We combine the art style and prompt for the local model.
         const fullPrompt = `${artStyle}, ${prompt}`;
         const result = await this.localGenerator(fullPrompt);
         
-        // transformers.js pipeline returns an object with a `toDataURL` method
+        // The pipeline returns an ImageData object. We must draw it to a canvas to get a data URL.
         const canvas = document.createElement('canvas');
         canvas.width = result.width;
         canvas.height = result.height;
