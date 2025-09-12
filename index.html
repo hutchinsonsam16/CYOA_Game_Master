@@ -1,112 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';">
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CYOA Game Master</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-    <style>
-      :root {
-        --background: #0f172a; /* slate-900 */
-        --surface-1: #1e293b; /* slate-800 */
-        --surface-2: #334155; /* slate-700 */
-        --surface-3: #475569; /* slate-600 */
-        --primary: #6366f1; /* indigo-500 */
-        --primary-hover: #4f46e5; /* indigo-600 */
-        --text-main: #e2e8f0; /* slate-200 */
-        --text-muted: #94a3b8; /* slate-400 */
-        --border: #334155; /* slate-700 */
-      }
-      body {
-        background-color: var(--background);
-        color: var(--text-main);
-        font-family: 'Inter', sans-serif;
-      }
-      .font-serif {
-        font-family: 'Lora', serif;
-      }
-      /* Custom scrollbar styling */
-      ::-webkit-scrollbar {
-        width: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: var(--surface-1);
-      }
-      ::-webkit-scrollbar-thumb {
-        background: var(--surface-3);
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #64748b; /* slate-500 */
-      }
-      
-      @keyframes fade-in {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-      .animate-fade-in {
-        animation: fade-in 0.5s ease-out forwards;
-      }
-      
-      @keyframes fade-in-up {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-      .animate-fade-in-up {
-        animation: fade-in-up 0.3s ease-out forwards;
-      }
-      
-      @keyframes progress-indeterminate {
-        0% { transform: translateX(-100%) scaleX(0.5); }
-        50% { transform: translateX(0) scaleX(0.2); }
-        100% { transform: translateX(100%) scaleX(0.5); }
-      }
-      .animate-progress-indeterminate {
-        animation: progress-indeterminate 1.5s ease-in-out infinite;
-      }
-      @keyframes fade-in-down {
-        from { opacity: 0; transform: translateY(-20px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-      .animate-fade-in-down {
-        animation: fade-in-down 0.3s ease-out forwards;
-      }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.1.1/",
-    "react": "https://aistudiocdn.com/react@^19.1.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.16.0",
-    "react-markdown": "https://esm.sh/react-markdown@9",
-    "remark-gfm": "https://esm.sh/remark-gfm@4",
-    "@xenova/transformers": "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2",
-    "@capacitor/cli": "https://aistudiocdn.com/@capacitor/cli@^7.4.3"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
+    <link rel="stylesheet" href="/src/index.css">
 </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/index.js"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js').then(registration => {
-            console.log('SW registered: ', registration);
-          }).catch(registrationError => {
-            console.log('SW registration failed: ', registrationError);
-          });
-        });
-      }
-    </script>
-  <script type="module" src="/index.tsx"></script>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/index.tsx"></script>
 </body>
 </html>

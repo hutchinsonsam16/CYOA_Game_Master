@@ -3,16 +3,14 @@
   "name": "CYOA Game Master",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/google/material-design-icons/master/src/action/android/materialicons/192dp/1x/android_black_192dp.png",
+      "src": "/icons/icon-192.png",
       "type": "image/png",
-      "sizes": "192x192",
-      "purpose": "any maskable"
+      "sizes": "192x192"
     },
     {
-      "src": "https://raw.githubusercontent.com/google/material-design-icons/master/src/action/android/materialicons/512dp/1x/android_black_512dp.png",
+      "src": "/icons/icon-512.png",
       "type": "image/png",
-      "sizes": "512x512",
-      "purpose": "any maskable"
+      "sizes": "512x512"
     }
   ],
   "start_url": ".",
